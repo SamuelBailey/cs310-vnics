@@ -1,0 +1,11 @@
+#!/bin/bash
+dir=$(pwd)
+vm="192.168.122.33"
+if ! ssh $vm "ls $dir" > /dev/null 2>&1 ; then
+    echo "Creating directory"
+    ssh $vm "mkdir -p $dir"
+fi
+# scp -rp $dir/. $vm:$dir
+rsync -rtz --del --progress --exclude '.git' $dir/ $vm:$dir/
+ssh -tt $vm "cd $dir; make $*"
+
