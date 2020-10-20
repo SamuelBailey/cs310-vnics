@@ -22,6 +22,7 @@ module_param(vnic_count, int, 0644);
  * ===============================================================
  */
 
+// TODO: Define vnic_packet
 struct vnic_packet {
 
 };
@@ -48,7 +49,18 @@ struct vnic_priv {
 //
 // TODO: Change this to use heap allocated memory, so it can be variable
 //
-struct net_device* vnic_devs[2];
+
+/**
+ * vnic_devs is an array of pointers to net_devices. Each net_device is allocated with 
+ * alloc_netdev() or alloc_etherdev()
+ */
+struct net_device** vnic_devs;
+
+/**
+ * ===============================================================
+ *                         Module methods
+ * ===============================================================
+ */
 
 /**
  * Init function for VNICs
@@ -77,6 +89,7 @@ void cleanup_vnic_module(void) {
             free_netdev(vnic_devs[i]);
         }
     }
+    kfree(vnic_devs);
 }
 
 /**
@@ -85,12 +98,16 @@ void cleanup_vnic_module(void) {
 int setup_vnic_module(void) {
     int i;
 
+    // Instantiate the array of net_devices
+    vnic_devs = kmalloc_array(vnic_count, sizeof(struct net_device*), GFP_KERNEL);
+
     printk("vnic: Initialising module\n");
     printk("vnic: Creating %d devices\n", vnic_count);
 
     // Load the required number of devices
     for (i = 0; i < vnic_count; i++) {
         printk("vnic: alloc_netdev, device number: %d\n", i);
+        // TODO: Change to alloc_etherdev() for an ethernet device
         vnic_devs[i] = alloc_netdev(sizeof(struct vnic_priv), "vnic%d", NET_NAME_UNKNOWN, vnic_init);
     }
 
