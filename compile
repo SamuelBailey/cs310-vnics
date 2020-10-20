@@ -1,11 +1,17 @@
 #!/bin/bash
+
+#
+# 1. Make sure to set the name of the VM as `kdev` in the /etc/hosts file
+# 2. Set your ssh keys for the VM by running `ssh-keygen` and `ssh-copy-id`
+#
+
 dir=$(pwd)
-vm="192.168.122.33"
-if ! ssh $vm "ls $dir" > /dev/null 2>&1 ; then
+# vm="192.168.122.33"
+if ! ssh kdev "ls $dir" > /dev/null 2>&1 ; then
     echo "Creating directory"
-    ssh $vm "mkdir -p $dir"
+    ssh kdev "mkdir -p $dir"
 fi
-# scp -rp $dir/. $vm:$dir
-rsync -rtz --del --progress --exclude '.git' $dir/ $vm:$dir/
-ssh -tt $vm "cd $dir; make $*"
+# scp -rp $dir/. kdev:$dir
+rsync -rtz --del --progress --exclude '.git' $dir/ kdev:$dir/
+ssh -tt kdev "cd $dir; make $*"
 
