@@ -17,22 +17,94 @@ module_param(vnic_count, int, 0644);
 
 
 /**
- * Variables for storing module data
+ * ===============================================================
+ *               Variables for storing module data
+ * ===============================================================
  */
+
+struct vnic_packet {
+
+};
+
+/**
+ * Private structure for each device that is instantiated
+ * Used for passing packets in and out.
+ * Adapted from `snull.c` in Linux Device Drivers 3rd Ed.
+ */
+struct vnic_priv {
+    struct net_device_stats stats;
+    int status;
+    struct vnic_packet* ppool;
+    struct vnic_packet* rx_queue; /* List of incoming packets */
+    int rx_int_enabled;
+    int tx_packetlen;
+    u8* tx_packetdata;
+    struct sk_buff* skb;
+    spinlock_t lock;
+    struct net_device* dev;
+    struct napi_struct napi;
+};
+
 //
 // TODO: Change this to use heap allocated memory, so it can be variable
 //
 struct net_device* vnic_devs[2];
 
-
-void cleanup_vnic_module(void) {
-    printk(KERN_ALERT "Initialising module");
-    printk(KERN_ALERT "Destroying %d devices", vnic_count);
+/**
+ * Init function for VNICs
+ */
+void vnic_init(struct net_device* dev) {
+    printk("vnic: vnic_init()\n");
 }
 
+/**
+ * EXIT functions for unloading the module
+ */
+void cleanup_vnic_module(void) {
+    int i;
+
+    printk("vnic: Unloading module\n");
+    printk("vnic: Destroying %d devices\n", vnic_count);
+
+    for (i = 0; i < vnic_count; i++) {
+        if (vnic_devs[i]) {
+            printk("vnic: Cleaning up device %d\n", i);
+            
+            // Unregister device to stop it being used
+            // unregister_netdev(vnic_devs[i]);
+
+            // free memory allocated to the device in the kernel
+            free_netdev(vnic_devs[i]);
+        }
+    }
+}
+
+/**
+ * INIT function for loading the module into the kernel
+ */
 int setup_vnic_module(void) {
-    printk(KERN_ALERT "Unloading module");
-    printk(KERN_ALERT "Creating %d devices", vnic_count);
+    int i;
+
+    printk("vnic: Initialising module\n");
+    printk("vnic: Creating %d devices\n", vnic_count);
+
+    // Load the required number of devices
+    for (i = 0; i < vnic_count; i++) {
+        printk("vnic: alloc_netdev, device number: %d\n", i);
+        vnic_devs[i] = alloc_netdev(sizeof(struct vnic_priv), "vnic%d", NET_NAME_UNKNOWN, vnic_init);
+    }
+
+    // Check that all devices were allocated successfully
+    for (i = 0; i < vnic_count; i++) {
+        if (vnic_devs[i] == NULL) {
+            printk(KERN_ALERT "vnic: WARNING unable to create device %d\n", i);
+            cleanup_vnic_module();
+            return 1;
+        }
+    }
+
+    // Register the net device
+
     return 0;
 }
 
