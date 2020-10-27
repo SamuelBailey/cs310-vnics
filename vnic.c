@@ -59,7 +59,17 @@ struct vnic_priv {
  * 
  * Copyright (C) 2020 Samuel Bailey
  */
+
 static struct net_device** vnic_devs;
+
+// For debugging
+static struct net_device* my_device;
+static struct net_device_ops my_ops = {
+    .ndo_init = vnic_init,
+    .ndo_open = vnic_open,
+    .ndo_stop = vnic_release,
+    .ndo_start_xmit = vnic_xmit
+};
 
 /**
  * ===============================================================
@@ -86,7 +96,7 @@ void print_netdev_name(struct net_device* dev) {
  * Init function for VNICs
  * This will only be called if using alloc_netdev() instead of alloc_etherdev()
  */
-void vnic_init(struct net_device* dev) {
+int vnic_init(struct net_device* dev) {
     struct vnic_priv* priv;
 
     // Assign some fields of the device
@@ -103,6 +113,52 @@ void vnic_init(struct net_device* dev) {
     priv->rx_int_enabled = 1;
 
     printk("vnic: vnic_init()\n");
+    return 0;
+}
+
+int vnic_dev_init(struct net_device* dev) {
+    printk("vnic: vnic_dev_init()");
+    return 0;
+}
+
+/**
+ * Stub for open
+ */
+int vnic_open(struct net_device* dev) {
+    printk("vnic: vnic_open called\n");
+    memcpy(dev->dev_addr, "\0ABCD0", ETH_ALEN);
+    netif_start_queue(dev);
+    return 0;
+}
+
+/**
+ * Stub for release
+ */
+int vnic_release(struct net_device* dev) {
+    printk("vnic: vnic_release called\n");
+    return 0;
+}
+
+/**
+ * Stub for transmit
+ */
+netdev_tx_t vnic_xmit(struct sk_buff* skb, struct net_device* dev) {
+    printk("vnic: vnic_transmit function called\n");
+    dev_kfree_skb(skb);
+    return NETDEV_TX_OK;
+}
+
+int debug_init(struct net_device* dev) {
+    ether_setup(dev);
+
+    struct net_device_ops* ops = kmalloc(sizeof(struct net_device_ops), GFP_KERNEL);
+    ops->ndo_open = vnic_open;
+    ops->ndo_stop = vnic_release;
+    ops->ndo_start_xmit = vnic_xmit;
+
+    // dev->netdev_ops->ndo_open = vnic_open;
+    // dev->netdev_ops->ndo_stop = vnic_release;
+    return 0;
 }
 
 /**
@@ -125,6 +181,8 @@ void cleanup_vnic_module(void) {
             free_netdev(vnic_devs[i]);
         }
     }
+    unregister_netdev(my_device);
+    free_netdev(my_device);
     kfree(vnic_devs);
 }
 
@@ -133,6 +191,8 @@ void cleanup_vnic_module(void) {
  */
 int setup_vnic_module(void) {
     int i;
+    struct vnic_priv* priv;
+    int result;
 
     // Instantiate the array of net_devices
     vnic_devs = kmalloc_array(vnic_count, sizeof(struct net_device*), GFP_KERNEL);
@@ -147,14 +207,14 @@ int setup_vnic_module(void) {
         // vnic_devs[i] = alloc_netdev(sizeof(struct vnic_priv), "vnic%d", NET_NAME_UNKNOWN, vnic_init);
 
         // Allocate an ethernet device
-        // if (!(vnic_devs[i] = alloc_etherdev(sizeof(struct vnic_priv)))) {
-        if (!(vnic_devs[i] = alloc_netdev(sizeof(struct vnic_priv), "vnic%d", NET_NAME_UNKNOWN, vnic_init))) {
+        if (!(vnic_devs[i] = alloc_etherdev(sizeof(struct vnic_priv)))) {
             printk(KERN_ALERT "vnic: Could not allocate etherdev %d", i);
             cleanup_vnic_module();
             return 1;
         }
 
-        struct vnic_priv* vnic_priv_mem = netdev_priv(vnic_devs[i]);
+        // To inspect private memory
+        priv = netdev_priv(vnic_devs[i]);
     }
 
     // Check that all devices were allocated successfully
@@ -166,10 +226,39 @@ int setup_vnic_module(void) {
         }
     }
 
+    // Assign functions for open, close and transmit
+    
+
+    // ===============================================
+    //    Just try instantiating a single device
+    // ===============================================
+
+    // struct net_device debug_device = {init: }
+
+    my_device = alloc_etherdev_mqs(sizeof(struct vnic_priv), 1, 1);
+    if (my_device == NULL)
+        return -ENOMEM;
+    my_device->netdev_ops = &my_ops;
+
+    printk(KERN_ALERT "vnic: Set netdev_ops for my_device\n");
+
+    if (register_netdev(my_device)) {
+        printk("vnic: ERROR - failed to register device.\n");
+    } else {
+        printk("vnic: SUCCESS!");
+    }
 
 
-    // Register the net device
-
+    // printk(KERN_ALERT "vnic: Beginning device registration\n");
+    // // Register the net device
+    // // Only do this once all fields have been set up on the net device - It will be accessible after this
+    // for (i = 0; i < vnic_count; i++) {
+    //     if ((result = register_netdev(vnic_devs[i]))) {
+    //         // printk("vnic: error %i registering device \"%s\"\n", result, vnic_devs[i]->name);
+    //     } else {
+    //         // printk("vnic: Successfully registered device \"%s\"\n", vnic_devs[i]->name);
+    //     }
+    // }
     return 0;
 }
 
