@@ -1,8 +1,10 @@
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/moduleparam.h>
-
 #include <linux/netdevice.h>
+#include <linux/etherdevice.h>
+
+#include "vnic.h"
 
 MODULE_AUTHOR("Samuel Bailey");
 MODULE_LICENSE("Dual BSD/GPL");
@@ -30,6 +32,7 @@ struct vnic_packet {
 /**
  * Private structure for each device that is instantiated
  * Used for passing packets in and out.
+ * 
  * Adapted from `snull.c` in Linux Device Drivers 3rd Ed.
  */
 struct vnic_priv {
@@ -53,8 +56,10 @@ struct vnic_priv {
 /**
  * vnic_devs is an array of pointers to net_devices. Each net_device is allocated with 
  * alloc_netdev() or alloc_etherdev()
+ * 
+ * Copyright (C) 2020 Samuel Bailey
  */
-struct net_device** vnic_devs;
+static struct net_device** vnic_devs;
 
 /**
  * ===============================================================
@@ -63,9 +68,40 @@ struct net_device** vnic_devs;
  */
 
 /**
+ * For debugging
+ */
+void print_netdev_name(struct net_device* dev) {
+    if (dev->name == NULL) {
+        printk("vnic: Name is NULL\n");
+    } else {
+        if (dev->name[0] == '\0') {
+            printk("vnic: Name is empty");
+        } else {
+            printk("vnic: Name is %s\n", dev->name);
+        }
+    }
+}
+
+/**
  * Init function for VNICs
+ * This will only be called if using alloc_netdev() instead of alloc_etherdev()
  */
 void vnic_init(struct net_device* dev) {
+    struct vnic_priv* priv;
+
+    // Assign some fields of the device
+    print_netdev_name(dev);
+    ether_setup(dev);
+    print_netdev_name(dev);
+
+    priv = netdev_priv(dev);
+
+    // Zero out private memory
+    memset(priv, 0, sizeof(struct vnic_priv));
+
+    // Enable receiving of interrupts
+    priv->rx_int_enabled = 1;
+
     printk("vnic: vnic_init()\n");
 }
 
@@ -108,7 +144,17 @@ int setup_vnic_module(void) {
     for (i = 0; i < vnic_count; i++) {
         printk("vnic: alloc_netdev, device number: %d\n", i);
         // TODO: Change to alloc_etherdev() for an ethernet device
-        vnic_devs[i] = alloc_netdev(sizeof(struct vnic_priv), "vnic%d", NET_NAME_UNKNOWN, vnic_init);
+        // vnic_devs[i] = alloc_netdev(sizeof(struct vnic_priv), "vnic%d", NET_NAME_UNKNOWN, vnic_init);
+
+        // Allocate an ethernet device
+        // if (!(vnic_devs[i] = alloc_etherdev(sizeof(struct vnic_priv)))) {
+        if (!(vnic_devs[i] = alloc_netdev(sizeof(struct vnic_priv), "vnic%d", NET_NAME_UNKNOWN, vnic_init))) {
+            printk(KERN_ALERT "vnic: Could not allocate etherdev %d", i);
+            cleanup_vnic_module();
+            return 1;
+        }
+
+        struct vnic_priv* vnic_priv_mem = netdev_priv(vnic_devs[i]);
     }
 
     // Check that all devices were allocated successfully
@@ -119,6 +165,8 @@ int setup_vnic_module(void) {
             return 1;
         }
     }
+
+
 
     // Register the net device
 
