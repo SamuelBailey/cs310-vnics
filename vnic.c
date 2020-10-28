@@ -175,14 +175,14 @@ void cleanup_vnic_module(void) {
             printk("vnic: Cleaning up device %d\n", i);
             
             // Unregister device to stop it being used
-            // unregister_netdev(vnic_devs[i]);
+            unregister_netdev(vnic_devs[i]);
 
             // free memory allocated to the device in the kernel
             free_netdev(vnic_devs[i]);
         }
     }
-    unregister_netdev(my_device);
-    free_netdev(my_device);
+    // unregister_netdev(my_device);
+    // free_netdev(my_device);
     kfree(vnic_devs);
 }
 
@@ -236,19 +236,41 @@ int setup_vnic_module(void) {
     // struct net_device debug_device = {init: }
 
     // my_device = alloc_etherdev_mqs(sizeof(struct vnic_priv), 1, 1);
-    my_device = alloc_netdev(sizeof(struct vnic_priv), "vnic%d", NET_NAME_ENUM, ether_setup);
-    if (my_device == NULL)
-        return -ENOMEM;
-    my_device->netdev_ops = &my_ops;
+    // my_device = alloc_netdev(sizeof(struct vnic_priv), "vnic%d", NET_NAME_ENUM, ether_setup);
+    // if (my_device == NULL)
+    //     return -ENOMEM;
+    // my_device->netdev_ops = &my_ops;
+
+    // Allocate memory for all vnic devices
+    for (i = 0; i < vnic_count; i++) {
+
+        // alloc_netdev allows the setting of name, but passed ether_setup to set ethernet values
+        vnic_devs[i] = alloc_netdev(sizeof(struct vnic_priv), "vnic%d", NET_NAME_ENUM, ether_setup);
+        if (vnic_devs[i] == NULL) {
+            printk(KERN_ALERT "vnic: Unable to allocate space for vnic %d\n", i);
+            cleanup_vnic_module();
+            return -ENOMEM;
+        }
+        
+        vnic_devs[i]->netdev_ops = &my_ops;
+    }
 
     printk(KERN_ALERT "vnic: Set netdev_ops for my_device\n");
 
-    if (register_netdev(my_device)) {
-        printk("vnic: ERROR - failed to register device.\n");
-    } else {
-        printk("vnic: SUCCESS!");
+    // Register all vnic devices
+    for (i = 0; i < vnic_count; i++) {
+        if (register_netdev(vnic_devs[i])) {
+            printk(KERN_ALERT "vnic: Error - failed to register device %d\n", i);
+        } else {
+            printk("vnic: Successfully registered device %d\n", i);
+        }
     }
 
+    // if (register_netdev(my_device)) {
+    //     printk("vnic: ERROR - failed to register device.\n");
+    // } else {
+    //     printk("vnic: SUCCESS!");
+    // }
 
     return 0;
 }
