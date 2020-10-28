@@ -249,16 +249,6 @@ int setup_vnic_module(void) {
     }
 
 
-    // printk(KERN_ALERT "vnic: Beginning device registration\n");
-    // // Register the net device
-    // // Only do this once all fields have been set up on the net device - It will be accessible after this
-    // for (i = 0; i < vnic_count; i++) {
-    //     if ((result = register_netdev(vnic_devs[i]))) {
-    //         // printk("vnic: error %i registering device \"%s\"\n", result, vnic_devs[i]->name);
-    //     } else {
-    //         // printk("vnic: Successfully registered device \"%s\"\n", vnic_devs[i]->name);
-    //     }
-    // }
     return 0;
 }
 
