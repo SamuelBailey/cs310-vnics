@@ -200,47 +200,6 @@ int setup_vnic_module(void) {
     printk("vnic: Initialising module\n");
     printk("vnic: Creating %d devices\n", vnic_count);
 
-    // Load the required number of devices
-    for (i = 0; i < vnic_count; i++) {
-        printk("vnic: alloc_netdev, device number: %d\n", i);
-        // TODO: Change to alloc_etherdev() for an ethernet device
-        // vnic_devs[i] = alloc_netdev(sizeof(struct vnic_priv), "vnic%d", NET_NAME_UNKNOWN, vnic_init);
-
-        // Allocate an ethernet device
-        if (!(vnic_devs[i] = alloc_etherdev(sizeof(struct vnic_priv)))) {
-            printk(KERN_ALERT "vnic: Could not allocate etherdev %d", i);
-            cleanup_vnic_module();
-            return 1;
-        }
-
-        // To inspect private memory
-        priv = netdev_priv(vnic_devs[i]);
-    }
-
-    // Check that all devices were allocated successfully
-    for (i = 0; i < vnic_count; i++) {
-        if (vnic_devs[i] == NULL) {
-            printk(KERN_ALERT "vnic: WARNING unable to create device %d\n", i);
-            cleanup_vnic_module();
-            return 1;
-        }
-    }
-
-    // Assign functions for open, close and transmit
-    
-
-    // ===============================================
-    //    Just try instantiating a single device
-    // ===============================================
-
-    // struct net_device debug_device = {init: }
-
-    // my_device = alloc_etherdev_mqs(sizeof(struct vnic_priv), 1, 1);
-    // my_device = alloc_netdev(sizeof(struct vnic_priv), "vnic%d", NET_NAME_ENUM, ether_setup);
-    // if (my_device == NULL)
-    //     return -ENOMEM;
-    // my_device->netdev_ops = &my_ops;
-
     // Allocate memory for all vnic devices
     for (i = 0; i < vnic_count; i++) {
 
