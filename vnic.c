@@ -235,7 +235,8 @@ int setup_vnic_module(void) {
 
     // struct net_device debug_device = {init: }
 
-    my_device = alloc_etherdev_mqs(sizeof(struct vnic_priv), 1, 1);
+    // my_device = alloc_etherdev_mqs(sizeof(struct vnic_priv), 1, 1);
+    my_device = alloc_netdev(sizeof(struct vnic_priv), "vnic%d", NET_NAME_ENUM, ether_setup);
     if (my_device == NULL)
         return -ENOMEM;
     my_device->netdev_ops = &my_ops;
