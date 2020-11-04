@@ -84,12 +84,12 @@ static struct net_device_ops my_ops = {
  */
 void print_netdev_name(struct net_device* dev) {
     if (dev->name == NULL) {
-        printk("vnic: Name is NULL\n");
+        printk("NULL");
     } else {
         if (dev->name[0] == '\0') {
-            printk("vnic: Name is empty");
+            printk("Empty");
         } else {
-            printk("vnic: Name is %s\n", dev->name);
+            printk("%s", dev->name);
         }
     }
 }
@@ -102,9 +102,10 @@ int vnic_init(struct net_device* dev) {
     struct vnic_priv* priv;
 
     // Assign some fields of the device
-    print_netdev_name(dev);
     ether_setup(dev);
+    printk("vnic: VNIC name: ");
     print_netdev_name(dev);
+    printk("\n");
 
     priv = netdev_priv(dev);
 
@@ -146,6 +147,7 @@ int vnic_open(struct net_device* dev) {
  */
 int vnic_release(struct net_device* dev) {
     printk("vnic: vnic_release called\n");
+    netif_stop_queue(dev);
     return 0;
 }
 
