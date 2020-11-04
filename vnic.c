@@ -152,12 +152,68 @@ int vnic_release(struct net_device* dev) {
 }
 
 /**
- * Stub for transmit
+ * Handles the actual transferring of data from one vnic to another
+ * Returns bool. 1 if successful, 0 if not.
+ * 
+ * This is in place of actually connecting to a hardware device
+ */
+int vnic_transfer(char *data, int len, struct net_device *dev) {
+    // Make a lookup table for which IP to send data to
+    struct net_device *dest;
+    // Very simple implementation - if vnic0, send to vnic1, else send to vnic0
+    if (strcmp(dev->name, vnic_devs[0]->name) == 0) {
+        dest = vnic_devs[1];
+    } else {
+        dest = vnic_devs[0];
+    }
+
+    // Check that dest is up
+    if (!(dest->flags & IFF_UP)) {
+        // fail
+        printk("vnic: %s failed to send packet\n", dev->name);
+        return 0;
+    }
+
+    // Send the packet - invoke the interrupt on the other device
+
+    printk("vnic: %s sent packet to %s\n", dev->name, dest->name);
+    return 1;
+}
+
+/**
+ * Method for transmit
  */
 netdev_tx_t vnic_xmit(struct sk_buff* skb, struct net_device* dev) {
-    printk("vnic: vnic_transmit function called\n");
-    dev_kfree_skb(skb);
-    return NETDEV_TX_OK;
+    int length;
+    char *data, shortpacket[ETH_ZLEN];
+    struct vnic_priv *priv = netdev_priv(dev);
+    
+    printk("vnic: %s vnic_transmit function called\n", dev->name);
+
+    length = skb->len;
+    data = skb->data;
+
+    // pad short packets with 0s
+    if (skb->len < ETH_ZLEN) {
+        memset(shortpacket, 0, ETH_ZLEN);
+        memcpy(shortpacket, skb->data, skb->len);
+        length = ETH_ZLEN;
+        data = shortpacket;
+    }
+    // Save timestamp for start of transmission
+    netif_trans_update(dev);
+
+    // This memory gets freed during an interrupt
+    priv->skb = skb;
+
+    // dev_kfree_skb(skb);
+    if (vnic_transfer(data, length, dev)) {
+        dev_kfree_skb(skb);
+        return NETDEV_TX_OK;
+    }
+    // DONT FREE THE DATA IF THE DEVICE IS BUSY
+    // dev_kfree_skb(skb);
+    return NETDEV_TX_BUSY;
 }
 
 int debug_init(struct net_device* dev) {
