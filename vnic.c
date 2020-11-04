@@ -13,10 +13,12 @@ MODULE_LICENSE("Dual BSD/GPL");
  * Command line arguments for loading the module
  * vnic_count : the number of vnics to instantiate on module load
  */
-int vnic_count = 2;
+static int vnic_count = 2;
+
+// TODO: Change this to work with as many addresses as required
+// Done this way for proof of concept and getting things up and running
 
 module_param(vnic_count, int, 0644);
-
 
 /**
  * ===============================================================
@@ -123,10 +125,18 @@ int vnic_dev_init(struct net_device* dev) {
 
 /**
  * Stub for open
+ * Sets the MAC address for the device
  */
 int vnic_open(struct net_device* dev) {
+
+    static unsigned char value = 0x00;
+
     printk("vnic: vnic_open called\n");
-    memcpy(dev->dev_addr, "\0ABCD0", ETH_ALEN);
+    // Start with a \0 to indicate not multicast address
+    unsigned char address[ETH_ALEN] = "\0VNIC0";
+    address[ETH_ALEN-1] = value++;
+    memcpy(dev->dev_addr, address, ETH_ALEN);
+    printk(KERN_ALERT "vnic: opening device %pMF", dev->dev_addr);
     netif_start_queue(dev);
     return 0;
 }
@@ -212,6 +222,10 @@ int setup_vnic_module(void) {
         }
         
         vnic_devs[i]->netdev_ops = &my_ops;
+        printk("vnic: Base address for device %pMF\n", vnic_devs[i]->base_addr);
+        printk("vnic: Broadcase address = %pMF\n", vnic_devs[i]->broadcast);
+        printk("vnic: addr_len = %hhx\n", vnic_devs[i]->addr_len);
+        printk("vnic: dev_addr = %pMF\n", vnic_devs[i]->dev_addr);
     }
 
     printk(KERN_ALERT "vnic: Set netdev_ops for my_device\n");
