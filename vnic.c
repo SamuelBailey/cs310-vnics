@@ -228,7 +228,6 @@ netdev_tx_t vnic_xmit(struct sk_buff* skb, struct net_device* dev) {
     iph = ip_hdr(skb);
 
     printk("vnic: %s vnic_transmit function called\n", dev->name);
-    printk(KERN_CONT "source address: %pI4, destination address: %pI4\n", iph->saddr, iph->daddr);
 
     length = skb->len;
     data = skb->data;
@@ -321,8 +320,8 @@ int setup_vnic_module(void) {
         }
         
         vnic_devs[i]->netdev_ops = &my_ops;
-        printk("vnic: Base address for device %pMF\n", vnic_devs[i]->base_addr);
-        printk("vnic: Broadcase address = %pMF\n", vnic_devs[i]->broadcast);
+        printk("vnic: Base address for device %pMF\n", &vnic_devs[i]->base_addr);
+        printk("vnic: Broadcase address = %pMF\n", &vnic_devs[i]->broadcast);
         printk("vnic: addr_len = %hhx\n", vnic_devs[i]->addr_len);
         printk("vnic: dev_addr = %pMF\n", vnic_devs[i]->dev_addr);
     }
