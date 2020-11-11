@@ -3,6 +3,7 @@
 #include <linux/moduleparam.h>
 #include <linux/netdevice.h>
 #include <linux/etherdevice.h>
+#include <linux/ip.h>   // Using struct iphdr
 
 #include "vnic.h"
 
@@ -12,13 +13,16 @@ MODULE_LICENSE("Dual BSD/GPL");
 /**
  * Command line arguments for loading the module
  * vnic_count : the number of vnics to instantiate on module load
+ * print_packet : bool, whether the packets should be printed on transmission
  */
 static int vnic_count = 2;
+static int print_packet = 0;
 
 // TODO: Change this to work with as many addresses as required
 // Done this way for proof of concept and getting things up and running
 
 module_param(vnic_count, int, 0644);
+module_param(print_packet, int, 0644);
 
 /**
  * ===============================================================
@@ -26,9 +30,11 @@ module_param(vnic_count, int, 0644);
  * ===============================================================
  */
 
-// TODO: Define vnic_packet
 struct vnic_packet {
-
+    struct vnic_packet* next;
+    struct net_device* dev;
+    int datalen;
+    u8 data[ETH_DATA_LEN];
 };
 
 /**
@@ -51,6 +57,7 @@ struct vnic_priv {
     struct napi_struct napi;
 };
 
+
 //
 // TODO: Change this to use heap allocated memory, so it can be variable
 //
@@ -66,11 +73,13 @@ static struct net_device** vnic_devs;
 
 // For debugging
 static struct net_device* my_device;
+
+// Doesn't contain a vnic_rx method
 static struct net_device_ops my_ops = {
     .ndo_init = vnic_init,
     .ndo_open = vnic_open,
     .ndo_stop = vnic_release,
-    .ndo_start_xmit = vnic_xmit
+    .ndo_start_xmit = vnic_xmit,
 };
 
 /**
@@ -92,6 +101,14 @@ void print_netdev_name(struct net_device* dev) {
             printk("%s", dev->name);
         }
     }
+}
+
+// Prints the source and destination addresses pointed to by saddr and daddr
+void print_ip_addresses(u32 *saddr, u32 *daddr) {
+    u32 host_saddr, host_daddr;
+    host_saddr = ntohl(*saddr);
+    host_daddr = ntohl(*daddr);
+    printk("vnic: saddr: %pI4, daddr: %pI4 \n", &host_saddr, &host_daddr);
 }
 
 /**
@@ -156,10 +173,28 @@ int vnic_release(struct net_device* dev) {
  * Returns bool. 1 if successful, 0 if not.
  * 
  * This is in place of actually connecting to a hardware device
+ * 
+ * TODO: Find the destination address of the packet and pass into the function
  */
 int vnic_transfer(char *data, int len, struct net_device *dev) {
     // Make a lookup table for which IP to send data to
     struct net_device *dest;
+    int i;
+
+    // From LDD3 snull. Make sure the packet is long enough to extract an ethernet and ip header
+    if (len < sizeof(struct ethhdr) + sizeof(struct iphdr)) {
+        printk(KERN_ALERT "Dropped packet due to it being too small to contain ethernet and ip headers\n");
+        return 0;
+    }
+
+    // Print the data of the packet if PRINT_PACKET is enabled
+    if (print_packet) {
+        printk("Length of packet: %i\ndata:", len);
+        for (i=14 ; i<len; i++)
+			printk(KERN_CONT " %02x",data[i]&0xff);
+		printk(KERN_CONT "\n");
+    }
+
     // Very simple implementation - if vnic0, send to vnic1, else send to vnic0
     if (strcmp(dev->name, vnic_devs[0]->name) == 0) {
         dest = vnic_devs[1];
@@ -187,11 +222,17 @@ netdev_tx_t vnic_xmit(struct sk_buff* skb, struct net_device* dev) {
     int length;
     char *data, shortpacket[ETH_ZLEN];
     struct vnic_priv *priv = netdev_priv(dev);
+    struct iphdr *iph;
     
+    // Get the IP address header
+    iph = ip_hdr(skb);
+
     printk("vnic: %s vnic_transmit function called\n", dev->name);
+    printk(KERN_CONT "source address: %pI4, destination address: %pI4\n", iph->saddr, iph->daddr);
 
     length = skb->len;
     data = skb->data;
+
 
     // pad short packets with 0s
     if (skb->len < ETH_ZLEN) {
@@ -203,7 +244,7 @@ netdev_tx_t vnic_xmit(struct sk_buff* skb, struct net_device* dev) {
     // Save timestamp for start of transmission
     netif_trans_update(dev);
 
-    // This memory gets freed during an interrupt
+    // This memory gets freed during interrupt after sending. Need to store a reference to it to free it
     priv->skb = skb;
 
     // dev_kfree_skb(skb);
