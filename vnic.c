@@ -176,10 +176,11 @@ int vnic_release(struct net_device* dev) {
  * 
  * TODO: Find the destination address of the packet and pass into the function
  */
-int vnic_transfer(char *data, int len, struct net_device *dev) {
+int vnic_transfer(char *buf, int len, struct net_device *dev) {
     // Make a lookup table for which IP to send data to
-    struct net_device *dest;
-    int i;
+    struct net_device *dest_dev;
+    struct iphdr *iph;
+    u32 *saddr, *daddr;
 
     // From LDD3 snull. Make sure the packet is long enough to extract an ethernet and ip header
     if (len < sizeof(struct ethhdr) + sizeof(struct iphdr)) {
@@ -187,23 +188,30 @@ int vnic_transfer(char *data, int len, struct net_device *dev) {
         return 0;
     }
 
+    // Print the source and destination ip addresses of the packet
+    iph = (struct iphdr *)(buf + sizeof(struct ethhdr));
+    saddr = &iph->saddr;
+    daddr = &iph->daddr;
+    print_ip_addresses(saddr, daddr);
+
     // Print the data of the packet if PRINT_PACKET is enabled
     if (print_packet) {
+        int i;
         printk("Length of packet: %i\ndata:", len);
         for (i=14 ; i<len; i++)
-			printk(KERN_CONT " %02x",data[i]&0xff);
+			printk(KERN_CONT " %02x",buf[i]&0xff);
 		printk(KERN_CONT "\n");
     }
 
     // Very simple implementation - if vnic0, send to vnic1, else send to vnic0
     if (strcmp(dev->name, vnic_devs[0]->name) == 0) {
-        dest = vnic_devs[1];
+        dest_dev = vnic_devs[1];
     } else {
-        dest = vnic_devs[0];
+        dest_dev = vnic_devs[0];
     }
 
     // Check that dest is up
-    if (!(dest->flags & IFF_UP)) {
+    if (!(dest_dev->flags & IFF_UP)) {
         // fail
         printk("vnic: %s failed to send packet\n", dev->name);
         return 0;
@@ -211,7 +219,7 @@ int vnic_transfer(char *data, int len, struct net_device *dev) {
 
     // Send the packet - invoke the interrupt on the other device
 
-    printk("vnic: %s sent packet to %s\n", dev->name, dest->name);
+    printk("vnic: %s sent packet to %s\n", dev->name, dest_dev->name);
     return 1;
 }
 
