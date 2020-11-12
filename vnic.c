@@ -231,15 +231,18 @@ netdev_tx_t vnic_xmit(struct sk_buff* skb, struct net_device* dev) {
     char *data, shortpacket[ETH_ZLEN];
     struct vnic_priv *priv = netdev_priv(dev);
     struct iphdr *iph;
-    
-    // Get the IP address header
-    iph = ip_hdr(skb);
 
+    // Check whether queue is stopped
+    if (netif_queue_stopped(dev))
+        return NETDEV_TX_BUSY;
+
+    // Stop the queue - other calls will know it is busy
+    netif_stop_queue(dev);
+    
     printk("vnic: %s vnic_transmit function called\n", dev->name);
 
     length = skb->len;
     data = skb->data;
-
 
     // pad short packets with 0s
     if (skb->len < ETH_ZLEN) {
@@ -248,6 +251,10 @@ netdev_tx_t vnic_xmit(struct sk_buff* skb, struct net_device* dev) {
         length = ETH_ZLEN;
         data = shortpacket;
     }
+
+    // Obtain the lock, so that data can be sent without being interrupted
+    spin_lock_irq(&priv->lock);
+
     // Save timestamp for start of transmission
     netif_trans_update(dev);
 
@@ -257,10 +264,22 @@ netdev_tx_t vnic_xmit(struct sk_buff* skb, struct net_device* dev) {
     // dev_kfree_skb(skb);
     if (vnic_transfer(data, length, dev)) {
         dev_kfree_skb(skb);
-        return NETDEV_TX_OK;
+
+        goto finish_ok;
     }
-    // DONT FREE THE DATA IF THE DEVICE IS BUSY
-    // dev_kfree_skb(skb);
+
+    // TEMPORARY BEHAVIOUR - Drop the packet whilst destination is not set up
+    goto finish_ok;
+
+finish_ok:
+    dev_kfree_skb(skb);
+    spin_unlock_irq(&priv->lock);
+    netif_wake_queue(dev);
+    return NETDEV_TX_OK;
+
+finish_busy:
+    spin_unlock_irq(&priv->lock);
+    netif_wake_queue(dev);
     return NETDEV_TX_BUSY;
 }
 
