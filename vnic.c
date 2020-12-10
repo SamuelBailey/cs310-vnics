@@ -14,15 +14,18 @@ MODULE_LICENSE("Dual BSD/GPL");
  * Command line arguments for loading the module
  * vnic_count : the number of vnics to instantiate on module load
  * print_packet : bool, whether the packets should be printed on transmission
+ * pool_size : int, the number of packets that the pool should be able to contain.
  */
 static int vnic_count = 2;
 static int print_packet = 0;
+static int pool_size = 8;
 
 // TODO: Change this to work with as many addresses as required
 // Done this way for proof of concept and getting things up and running
 
 module_param(vnic_count, int, 0644);
 module_param(print_packet, int, 0644);
+module_param(pool_size, int, 0644);
 
 /**
  * ===============================================================
@@ -31,8 +34,8 @@ module_param(print_packet, int, 0644);
  */
 
 struct vnic_packet {
-    struct vnic_packet* next;
-    struct net_device* dev;
+    struct vnic_packet *next;
+    struct net_device *dev;
     int datalen;
     u8 data[ETH_DATA_LEN];
 };
@@ -41,19 +44,19 @@ struct vnic_packet {
  * Private structure for each device that is instantiated
  * Used for passing packets in and out.
  * 
- * Adapted from `snull.c` in Linux Device Drivers 3rd Ed.
+ * Originally from `snull.c` in Linux Device Drivers 3rd Ed.
  */
 struct vnic_priv {
     struct net_device_stats stats;
     int status;
-    struct vnic_packet* ppool;
-    struct vnic_packet* rx_queue; /* List of incoming packets */
+    struct vnic_packet *ppool;
+    struct vnic_packet *rx_queue; /* List of incoming packets */
     int rx_int_enabled;
     int tx_packetlen;
-    u8* tx_packetdata;
-    struct sk_buff* skb;
+    u8 *tx_packetdata;
+    struct sk_buff *skb;
     spinlock_t lock;
-    struct net_device* dev;
+    struct net_device *dev;
     struct napi_struct napi;
 };
 
@@ -69,10 +72,10 @@ struct vnic_priv {
  * Copyright (C) 2020 Samuel Bailey
  */
 
-static struct net_device** vnic_devs;
+static struct net_device **vnic_devs;
 
 // For debugging
-static struct net_device* my_device;
+static struct net_device *my_device;
 
 // Doesn't contain a vnic_rx method
 static struct net_device_ops my_ops = {
@@ -91,7 +94,7 @@ static struct net_device_ops my_ops = {
 /**
  * For debugging
  */
-void print_netdev_name(struct net_device* dev) {
+void print_netdev_name(struct net_device *dev) {
     if (dev->name == NULL) {
         printk(KERN_CONT "NULL");
     } else {
@@ -117,8 +120,8 @@ void print_ip_addresses(u32 *saddr, u32 *daddr) {
  * Init function for VNICs
  * This will only be called if using alloc_netdev() instead of alloc_etherdev()
  */
-void vnic_init(struct net_device* dev) {
-    struct vnic_priv* priv;
+void vnic_init(struct net_device *dev) {
+    struct vnic_priv *priv;
 
     // Assign some fields of the device
     ether_setup(dev);
@@ -134,10 +137,50 @@ void vnic_init(struct net_device* dev) {
     // Enable receiving of interrupts
     priv->rx_int_enabled = 1;
 
+    vnic_setup_packet_pool(dev);
+
     printk("vnic: vnic_init()\n");
 }
 
-int vnic_dev_init(struct net_device* dev) {
+/**
+ * Sets up an area of private memory for each device to store
+ * packets
+ */
+void vnic_setup_packet_pool(struct net_device *dev) {
+    struct vnic_priv *priv = netdev_priv(dev);
+    int i;
+    struct vnic_packet *allocated_packet; // Empty packet structure for allocating memory
+
+    priv->ppool = NULL;
+    for (i = 0; i < pool_size; i++) {
+        allocated_packet = kmalloc(sizeof(struct vnic_packet), GFP_KERNEL);
+        if (allocated_packet == NULL) {
+            printk(KERN_ALERT "Ran out of memory allocating packet pool");
+            return;
+        }
+        // Set up a linked list - Each packet will point to the next in the pool
+        allocated_packet->dev = dev;
+        allocated_packet->next = priv->ppool;
+        // Now there is a pointer to the allocated memory, move the ppool pointer
+        // back one packet, to include it in the linked list
+        priv->ppool = allocated_packet;
+    }
+}
+
+void vnic_teardown_packet_pool(struct net_device *dev) {
+    struct vnic_priv *priv = netdev_priv(dev);
+    struct vnic_packet *curr_packet = priv->ppool;
+    struct vnic_packet *next_packet;
+
+    while (curr_packet != NULL) {
+        next_packet = curr_packet->next;
+        kfree(curr_packet);
+        curr_packet = next_packet;
+    }
+    priv->ppool = NULL;
+}
+
+int vnic_dev_init(struct net_device *dev) {
     printk("vnic: vnic_dev_init()");
     return 0;
 }
@@ -146,7 +189,7 @@ int vnic_dev_init(struct net_device* dev) {
  * Stub for open
  * Sets the MAC address for the device
  */
-int vnic_open(struct net_device* dev) {
+int vnic_open(struct net_device *dev) {
 
     static unsigned char value = 0x00;
 
@@ -163,7 +206,7 @@ int vnic_open(struct net_device* dev) {
 /**
  * Stub for release
  */
-int vnic_release(struct net_device* dev) {
+int vnic_release(struct net_device *dev) {
     printk("vnic: vnic_release called\n");
     netif_stop_queue(dev);
     return 0;
@@ -284,10 +327,10 @@ netdev_tx_t vnic_xmit(struct sk_buff *skb, struct net_device *dev) {
     return NETDEV_TX_BUSY;
 }
 
-int debug_init(struct net_device* dev) {
+int debug_init(struct net_device *dev) {
     ether_setup(dev);
 
-    struct net_device_ops* ops = kmalloc(sizeof(struct net_device_ops), GFP_KERNEL);
+    struct net_device_ops *ops = kmalloc(sizeof(struct net_device_ops), GFP_KERNEL);
     ops->ndo_open = vnic_open;
     ops->ndo_stop = vnic_release;
     ops->ndo_start_xmit = vnic_xmit;
@@ -327,7 +370,7 @@ void cleanup_vnic_module(void) {
  */
 int setup_vnic_module(void) {
     int i;
-    struct vnic_priv* priv;
+    struct vnic_priv *priv;
     int result;
 
     // Instantiate the array of net_devices
