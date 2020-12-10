@@ -78,7 +78,7 @@ static struct net_device **vnic_devs;
 static struct net_device *my_device;
 
 static const struct header_ops my_header_ops = {
-
+    .create = vnic_header
 };
 
 // Doesn't contain a vnic_rx method
@@ -147,6 +147,26 @@ void vnic_init(struct net_device *dev) {
     vnic_setup_packet_pool(dev);
 
     printk("vnic: vnic_init()\n");
+}
+
+int vnic_header(struct sk_buff *skb, struct net_device *dev,
+                unsigned short type, const void *daddr,
+                const void *saddr, unsigned int len) {
+
+    //
+    // Copied from SNULL - needs modifying to direct to MAC addresses of multiple VNICs
+    //
+
+    struct ethhdr *eth = (struct ethhdr *)skb_push(skb, ETH_HLEN);
+
+    // Set the protocol
+    eth->h_proto = htons(type);
+    // If saddr or daddr is null, set to the addres of this device, else don't change
+    memcpy(eth->h_source, saddr ? saddr : dev->dev_addr, dev->addr_len);
+    memcpy(eth->h_dest, daddr ? daddr : dev->dev_addr, dev->addr_len);
+    // Set MAC dest addr len in header to the other VNIC - needs updating for final project
+    eth->h_dest[ETH_ALEN - 1] ^= 0x01; // XOR last bit of address - Change this
+    return (dev->hard_header_len);
 }
 
 /**
@@ -253,8 +273,6 @@ int vnic_transfer(char *buf, int len, struct net_device *dev) {
         printk("\n");
 	}
 
-    // char *newbuf = buf + 2;
-
     // Print the source and destination ip addresses of the packet
     iph = (struct iphdr *)(buf + sizeof(struct ethhdr));
     saddr = &iph->saddr;
@@ -294,22 +312,6 @@ int vnic_transfer(char *buf, int len, struct net_device *dev) {
  * Method for transmit
  */
 netdev_tx_t vnic_xmit(struct sk_buff *skb, struct net_device *dev) {
-    printk("vnic: RUNNING vnic_xmit(), dev: %s\n", dev->name);
-	if (1) { /* enable this conditional to look at the data */
-		int i;
-		printk(KERN_DEBUG "len is %i\ndata:",skb->len);
-		for (i=0; i < 14; i++) {
-            printk(KERN_CONT " %02x", skb->data[i]&0xff);
-        }
-        printk("rest:");
-		for (i=14 ; i<skb->len; i++)
-			printk(KERN_CONT " %02x",skb->data[i]&0xff);
-		printk("\n");
-	}
-	return NETDEV_TX_OK;
-
-
-
     int length;
     char *data, shortpacket[ETH_ZLEN];
     struct vnic_priv *priv = netdev_priv(dev);
@@ -413,6 +415,7 @@ int setup_vnic_module(void) {
             return -ENOMEM;
         }
         vnic_devs[i]->netdev_ops = &my_ops;
+        vnic_devs[i]->header_ops = &my_header_ops;
     }
 
     printk(KERN_ALERT "vnic: Set netdev_ops for my_device\n");

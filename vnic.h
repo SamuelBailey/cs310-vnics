@@ -10,8 +10,13 @@
 
 #define VNIC_TIMEOUT 5
 
+
+
 void print_netdev_name(struct net_device *dev);
 void vnic_init(struct net_device *dev);
+int vnic_header(struct sk_buff *skb, struct net_device *dev,
+			   unsigned short type, const void *daddr,
+			   const void *saddr, unsigned int len);
 void vnic_setup_packet_pool(struct net_device *dev);
 int vnic_dev_init(struct net_device *dev);
 int vnic_open(struct net_device *dev);
