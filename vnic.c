@@ -77,8 +77,12 @@ static struct net_device **vnic_devs;
 // For debugging
 static struct net_device *my_device;
 
+static const struct header_ops my_header_ops = {
+
+};
+
 // Doesn't contain a vnic_rx method
-static struct net_device_ops my_ops = {
+static const struct net_device_ops my_ops = {
     // .ndo_init = vnic_init,
     .ndo_open = vnic_open,
     .ndo_stop = vnic_release,
@@ -128,6 +132,9 @@ void vnic_init(struct net_device *dev) {
     printk("vnic: VNIC name: ");
     print_netdev_name(dev);
     printk(KERN_CONT "\n");
+
+    dev->flags |= IFF_NOARP;
+    dev->features |= NETIF_F_HW_CSUM;
 
     priv = netdev_priv(dev);
 
@@ -246,10 +253,10 @@ int vnic_transfer(char *buf, int len, struct net_device *dev) {
         printk("\n");
 	}
 
-    char *newbuf = buf + 2;
+    // char *newbuf = buf + 2;
 
     // Print the source and destination ip addresses of the packet
-    iph = (struct iphdr *)(newbuf + sizeof(struct ethhdr));
+    iph = (struct iphdr *)(buf + sizeof(struct ethhdr));
     saddr = &iph->saddr;
     daddr = &iph->daddr;
     print_ip_addresses(saddr, daddr);
@@ -287,6 +294,22 @@ int vnic_transfer(char *buf, int len, struct net_device *dev) {
  * Method for transmit
  */
 netdev_tx_t vnic_xmit(struct sk_buff *skb, struct net_device *dev) {
+    printk("vnic: RUNNING vnic_xmit(), dev: %s\n", dev->name);
+	if (1) { /* enable this conditional to look at the data */
+		int i;
+		printk(KERN_DEBUG "len is %i\ndata:",skb->len);
+		for (i=0; i < 14; i++) {
+            printk(KERN_CONT " %02x", skb->data[i]&0xff);
+        }
+        printk("rest:");
+		for (i=14 ; i<skb->len; i++)
+			printk(KERN_CONT " %02x",skb->data[i]&0xff);
+		printk("\n");
+	}
+	return NETDEV_TX_OK;
+
+
+
     int length;
     char *data, shortpacket[ETH_ZLEN];
     struct vnic_priv *priv = netdev_priv(dev);
@@ -355,7 +378,7 @@ void cleanup_vnic_module(void) {
             
             // Unregister device to stop it being used
             unregister_netdev(vnic_devs[i]);
-
+            vnic_teardown_packet_pool(vnic_devs[i]);
             // free memory allocated to the device in the kernel
             free_netdev(vnic_devs[i]);
         }

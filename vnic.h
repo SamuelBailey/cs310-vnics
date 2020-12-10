@@ -19,4 +19,5 @@ int vnic_release(struct net_device *dev);
 netdev_tx_t vnic_xmit(struct sk_buff* skb, struct net_device *dev);
 int debug_init(struct net_device *dev);
 
+
 #endif
