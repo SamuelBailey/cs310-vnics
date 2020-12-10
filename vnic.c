@@ -33,12 +33,6 @@ module_param(pool_size, int, 0644);
  * ===============================================================
  */
 
-struct vnic_packet {
-    struct vnic_packet *next;
-    struct net_device *dev;
-    int datalen;
-    u8 data[ETH_DATA_LEN];
-};
 
 /**
  * Private structure for each device that is instantiated
@@ -316,6 +310,7 @@ netdev_tx_t vnic_xmit(struct sk_buff *skb, struct net_device *dev) {
     char *data, shortpacket[ETH_ZLEN];
     struct vnic_priv *priv = netdev_priv(dev);
     struct iphdr *iph;
+    struct net_device *dest_dev;
     
     // Get the IP address header
     // printk(KERN_ALERT "Getting the IP addresses\n");
@@ -334,6 +329,8 @@ netdev_tx_t vnic_xmit(struct sk_buff *skb, struct net_device *dev) {
         memcpy(shortpacket, skb->data, skb->len);
         length = ETH_ZLEN;
         data = shortpacket;
+        memcpy(skb->data, data, ETH_ZLEN);
+        skb->len = length;
     }
     // Save timestamp for start of transmission
     netif_trans_update(dev);
@@ -341,15 +338,76 @@ netdev_tx_t vnic_xmit(struct sk_buff *skb, struct net_device *dev) {
     // This memory gets freed during interrupt after sending. Need to store a reference to it to free it
     priv->skb = skb;
 
+    // TODO: Change this to look up based on IP address
+    // All data goes to vnic 0 at the moment
+    dest_dev = vnic_devs[0];
+
+
+    vnic_rx(dest_dev, skb);
+
+
+
     // dev_kfree_skb(skb);
-    if (vnic_transfer(data, length, dev)) {
-        dev_kfree_skb(skb);
-        return NETDEV_TX_OK;
-    }
+    // if (vnic_transfer(data, length, dest_dev)) {
+    //     // dev_kfree_skb(skb);
+    //     return NETDEV_TX_OK;
+    // }
     // DONT FREE THE DATA IF THE DEVICE IS BUSY
-    dev_kfree_skb(skb);
+    // dev_kfree_skb(skb);
     return NETDEV_TX_OK;
     return NETDEV_TX_BUSY;
+}
+
+void vnic_rx(struct net_device *dev, struct sk_buff *skb) {
+    // struct sk_buff *skb;
+    struct vnic_priv *priv = netdev_priv(dev);
+    char *buf = skb->data;
+    struct iphdr *iph;
+    u32 *saddr, *daddr;
+
+    // Need to build a socket buffer for the packet to be placed in, so
+    // it can be passed to upper levels.
+
+    //
+    // We don't need to assign a buffer, because this has come from an internal
+    // function instead of a real card. Therefore the packet is already in memory
+    // The free has been removed from the xmit function, so the buffer will remain
+    // in memory.
+    //
+    if (1) {
+        int i;
+        printk(KERN_DEBUG "len is %i\n data:",skb->len);
+        for (i=0; i < 14; i++) {
+            printk(KERN_CONT " %02x", buf[i]&0xff);
+        }
+        printk("rest:");
+        for (i=14 ; i<skb->len; i++)
+            printk(KERN_CONT " %02x",buf[i]&0xff);
+        printk("\n");
+	}
+
+    iph = (struct iphdr *)(buf + sizeof(struct ethhdr));
+    saddr = &iph->saddr;
+    daddr = &iph->daddr;
+    ((u8 *)saddr)[2] ^= 1;
+    ((u8 *)daddr)[2] ^= 1;
+    iph->check = 0;         /* and rebuild the checksum (ip needs it) */
+	iph->check = ip_fast_csum((unsigned char *)iph,iph->ihl);
+
+    saddr = &iph->saddr;
+    daddr = &iph->daddr;
+    print_ip_addresses(saddr, daddr);
+
+
+    // Copy the data back into the skb
+    memcpy(skb->data, buf, skb->len);
+
+    printk("vnic: === Receiving packet ===\n");
+
+    skb->dev = dev;
+    skb->protocol = eth_type_trans(skb, dev);
+    skb->ip_summed = CHECKSUM_UNNECESSARY; // From snull - don't check the checksum
+    netif_rx(skb);
 }
 
 int debug_init(struct net_device *dev) {
