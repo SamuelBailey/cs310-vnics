@@ -4,6 +4,38 @@ if [ "$EUID" -ne 0 ]
   exit
 fi
 
-insmod vnic.ko
-ifconfig vnic0 l0
-ifconfig vnic1 l1
+function is_ip_address {
+  regex="^(0*(1?[0-9]{1,2}|2([0-4][0-9]|5[0-5]))\.){3}0*(1?[0-9]{1,2}|2([‌​0-4][0-9]|5[0-5]))$"
+  if [[ $1 =~ $regex ]]; then
+    return 0 # success
+  else
+    return 1 # fail
+  fi
+}
+
+ip_file="./ip_mappings.txt"
+arguments="ip_mappings="
+first_ip=true
+
+# Go through each line of the IP addresses file. If it is an IP address, add it, otherwise resolve it as a hostname
+while read -r line || [[ -n "$line" ]]; do
+  echo "Reading the line: $line"
+  if [ "$first_ip" = false ]; then
+    arguments+=","
+  fi
+
+  if is_ip_address $line; then
+    arguments+="\"$line\""
+  else
+    ip=$(host $line | awk '/has address/ { print $4 ; exit }')
+    arguments+="\"$ip\""
+  fi
+
+  first_ip=false
+done < "$ip_file"
+
+echo "$arguments"
+
+# insmod vnic.ko
+# ifconfig vnic0 l0
+# ifconfig vnic1 l1
