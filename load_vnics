@@ -20,18 +20,29 @@ first_ip=true
 # Go through each line of the IP addresses file. If it is an IP address, add it, otherwise resolve it as a hostname
 while read -r line || [[ -n "$line" ]]; do
   echo "Reading the line: $line"
-  if [ "$first_ip" = false ]; then
-    arguments+=","
-  fi
 
   if is_ip_address $line; then
+    if [ "$first_ip" = false ]; then
+      arguments+=","
+    fi
+
     arguments+="\"$line\""
+    first_ip=false
+
   else
     ip=$(host $line | awk '/has address/ { print $4 ; exit }')
-    arguments+="\"$ip\""
+
+    # Check that hostname has been successfully resolved
+    if [[ -n $ip ]]; then
+      if [ "$first_ip" = false ]; then
+        arguments+=","
+      fi
+
+      arguments+="\"$ip\""
+      first_ip=false
+    fi
   fi
 
-  first_ip=false
 done < "$ip_file"
 
 echo "$arguments"
