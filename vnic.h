@@ -10,8 +10,17 @@
 
 #define VNIC_TIMEOUT 5
 // TODO: remove hard coded definition of HASH_BITS
-#define HASH_BITS 5
-#define MAX_VNICS (1 << HASH_BITS)
+#define MY_HASH_BITS 5
+#define MAX_VNICS (1 << MY_HASH_BITS)
+
+#define DEBUG_ON
+#ifdef DEBUG_ON
+    // Log message to kernal logs if DEBUG_ON is defined
+    #define LOG(message) printk("vnic: "); printk(KERN_CONT message)
+#else
+    // Log message to kernal logs if DEBUG_ON is defined
+    #define LOG(message)
+#endif
 
 struct vnic_packet {
     struct vnic_packet *next;

@@ -22,6 +22,7 @@ static int print_packet = 0;
 static int pool_size = 8;
 static char *ip_mappings[MAX_VNICS];
 
+
 // TODO: Change this to work with as many addresses as required
 // Done this way for proof of concept and getting things up and running
 
@@ -134,7 +135,7 @@ static int hash_bits;
  * 
  * Uses the global ip_addr_lookup_table to be accessible anywhere in the module
  */
-void setup_hash_table() {
+void setup_hash_table(void) {
     int i;
     // ip_addr of null_device is undefined
     struct net_device_addr null_device = {
@@ -150,6 +151,14 @@ void setup_hash_table() {
     for (i = 0; i < lookup_table_len; i++) {
         ip_addr_lookup_table[i] = null_device;
     }
+}
+
+/**
+ * Frees the ip_addr_lookup_table
+ */
+void free_hash_table(void) {
+    LOG("Freed ip_addr_lookup_table\n");
+    kfree(ip_addr_lookup_table);
 }
 
 /**
@@ -180,8 +189,14 @@ int add_dev_to_hash_table(u32 ip_addr, struct net_device *dev) {
 struct net_device *get_dev_from_hash_table(u32 ip_addr) {
     u32 index = hash_32(ip_addr, hash_bits);
     int attempts = 0;
+
+    printk("vnic: ==========Looking for %pI4h=========\n", &ip_addr);
+    printk("vnic: hash = %u", index);
+
     while (ip_addr_lookup_table[index].device && attempts++ < lookup_table_len) {
         if (ip_addr_lookup_table[index].ip_addr == ip_addr) {
+            printk("vnic: Found %pI4h after %d attempts\n", &ip_addr, attempts);
+            printk("vnic: index = %u, (max %d)\n", index, lookup_table_len);
             return ip_addr_lookup_table[index].device;
         }
         index = (index + 1) % lookup_table_len;
@@ -554,6 +569,7 @@ void cleanup_vnic_module(void) {
     // unregister_netdev(my_device);
     // free_netdev(my_device);
     kfree(vnic_devs);
+    free_hash_table();
 }
 
 /**
@@ -584,6 +600,14 @@ int setup_vnic_module(void) {
         vnic_devs[i]->header_ops = &my_header_ops;
     }
 
+    // Setup hashtable of ip addresses to net_devices
+    setup_hash_table();
+    for (i = 0; i < vnic_count; i++) {
+        u32 ip_addr = ip_addr_str_to_int(ip_mappings[i]);
+        add_dev_to_hash_table(ip_addr, vnic_devs[i]);
+    }
+
+
     printk(KERN_ALERT "vnic: Set netdev_ops for my_device\n");
 
     // Register all vnic devices
@@ -596,6 +620,13 @@ int setup_vnic_module(void) {
             printk("vnic: Successfully registered device %d\n", i);
         }
     }
+
+    // For testing purposes - check that vnics are present in the hash table
+    for (i = 0; i < vnic_count; i++) {
+        u32 ip_addr = ip_addr_str_to_int(ip_mappings[i]);
+        printk("vnic: Finding vnic with address %pI4h : %s\n", &ip_addr, get_dev_from_hash_table(ip_addr)->name);
+    }
+
     return 0;
 }
 
