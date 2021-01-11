@@ -9,6 +9,9 @@
 #include <linux/netdevice.h>
 
 #define VNIC_TIMEOUT 5
+// TODO: remove hard coded definition of HASH_BITS
+#define HASH_BITS 5
+#define MAX_VNICS (1 << HASH_BITS)
 
 struct vnic_packet {
     struct vnic_packet *next;

@@ -4,6 +4,7 @@
 #include <linux/netdevice.h>
 #include <linux/etherdevice.h>
 #include <linux/ip.h>   // Using struct iphdr
+#include <linux/hash.h>
 
 #include "vnic.h"
 
@@ -19,13 +20,15 @@ MODULE_LICENSE("Dual BSD/GPL");
 static int vnic_count = 2;
 static int print_packet = 0;
 static int pool_size = 8;
+static char *ip_mappings[MAX_VNICS];
 
 // TODO: Change this to work with as many addresses as required
 // Done this way for proof of concept and getting things up and running
 
-module_param(vnic_count, int, 0644);
+// module_param(vnic_count, int, 0644);
 module_param(print_packet, int, 0644);
 module_param(pool_size, int, 0644);
+module_param_array(ip_mappings, charp, &vnic_count, 0644);
 
 /**
  * ===============================================================
@@ -85,9 +88,106 @@ static const struct net_device_ops my_ops = {
 
 /**
  * ===============================================================
- *                         Module methods
+ *                         Helper methods
  * ===============================================================
  */
+
+// Takes a dotted decimal IP address, terminated by a null character, and returns the IP address
+// as an unsigned int
+uint32_t ip_addr_str_to_int(const char *input) {
+    u32 output = 0;
+    int pos = 0;
+    u32 decimal = 0;
+    // Used to define the start and end of each dotted decimal value in the address
+    int start_index = 0;
+    int end_index = 0;
+
+    do {
+        if (input[pos] == '.' || input[pos] == '\0') {
+            // each decimal number is max size 3. Allocate 4 to allow for null termination character
+            char *temp_str = kcalloc(4, sizeof(char), GFP_KERNEL);
+
+            end_index = pos - 1;
+            memcpy(temp_str, input + start_index, (end_index - start_index + 1) * sizeof(char));
+            kstrtou32(temp_str, 10, &decimal);
+            output = (output * 1<<8) + decimal;
+            start_index = pos + 1;
+            kfree(temp_str);
+        }
+    } while (input[pos++] != '\0');
+
+    return output;
+}
+
+struct net_device_addr {
+    u32 ip_addr;
+    struct net_device *device;
+};
+
+static int lookup_table_len;
+static struct net_device_addr *ip_addr_lookup_table;
+static int hash_bits;
+
+/**
+ * Creates an empty lookup table of IP addresses to net_device structures for fast access
+ * This is allocated on the heap, so remember to free the memory on closure.
+ * 
+ * Uses the global ip_addr_lookup_table to be accessible anywhere in the module
+ */
+void setup_hash_table() {
+    int i;
+    // ip_addr of null_device is undefined
+    struct net_device_addr null_device = {
+        .device = NULL
+    };
+
+    hash_bits = fls((vnic_count * 3) / 2);
+    // lookup_table_len is the first power of 2 after vnic_count * 1.5
+    lookup_table_len = 1 << hash_bits;
+
+    ip_addr_lookup_table = kmalloc_array(lookup_table_len, sizeof(struct net_device_addr), GFP_KERNEL);
+
+    for (i = 0; i < lookup_table_len; i++) {
+        ip_addr_lookup_table[i] = null_device;
+    }
+}
+
+/**
+ * Stores a reference to the given device in the hash table
+ * 
+ * returns 1 for success, 0 for failure to insert
+ */
+int add_dev_to_hash_table(u32 ip_addr, struct net_device *dev) {
+    u32 index = hash_32(ip_addr, hash_bits); // The size of the lookup table is dependent on HASH_BITS, so this will not overflow
+    int attempts = 0;
+    while (ip_addr_lookup_table[index].device && attempts < lookup_table_len) {
+        index = (index + 1) % lookup_table_len;
+        attempts++;
+    }
+    if (!ip_addr_lookup_table[index].device) {
+        ip_addr_lookup_table[index].device = dev;
+        ip_addr_lookup_table[index].ip_addr = ip_addr;
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+/**
+ * Returns a pointer to the net device with the defined IP address.
+ * Pointer is NULL if no device exists with the IP address
+ */
+struct net_device *get_dev_from_hash_table(u32 ip_addr) {
+    u32 index = hash_32(ip_addr, hash_bits);
+    int attempts = 0;
+    while (ip_addr_lookup_table[index].device && attempts++ < lookup_table_len) {
+        if (ip_addr_lookup_table[index].ip_addr == ip_addr) {
+            return ip_addr_lookup_table[index].device;
+        }
+        index = (index + 1) % lookup_table_len;
+    }
+    return NULL;
+}
 
 /**
  * For debugging
@@ -105,14 +205,22 @@ void print_netdev_name(struct net_device *dev) {
 }
 
 // Prints the source and destination addresses pointed to by saddr and daddr
-void print_ip_addresses(u32 *saddr, u32 *daddr) {
-    u32 host_saddr, host_daddr;
-    host_saddr = *saddr;
-    host_daddr = *daddr;
-    // host_saddr = ntohl(*saddr);
-    // host_daddr = ntohl(*daddr);
-    printk("vnic: saddr: %pI4, daddr: %pI4 \n", &host_saddr, &host_daddr);
+// saddr and daddr must be in Network byte order
+void print_ip_addresses_n(u32 *saddr, u32 *daddr) {
+    printk("vnic: saddr: %pI4, daddr: %pI4 \n", saddr, daddr);
 }
+
+// Prints the source and destination addresses pointed to by saddr and daddr
+// saddr and daddr must be in Host byte order
+void print_ip_addresses_h(u32 *saddr, u32 *daddr) {
+    printk("vnic: saddr: %pI4h, daddr: %pI4h \n", saddr, daddr);
+}
+
+/**
+ * ===============================================================
+ *                         Module methods
+ * ===============================================================
+ */
 
 /**
  * Init function for VNICs
@@ -271,7 +379,7 @@ int vnic_transfer(char *buf, int len, struct net_device *dev) {
     iph = (struct iphdr *)(buf + sizeof(struct ethhdr));
     saddr = &iph->saddr;
     daddr = &iph->daddr;
-    print_ip_addresses(saddr, daddr);
+    print_ip_addresses_n(saddr, daddr);
 
     // Print the data of the packet if PRINT_PACKET is enabled
     if (print_packet) {
@@ -315,7 +423,7 @@ netdev_tx_t vnic_xmit(struct sk_buff *skb, struct net_device *dev) {
     // Get the IP address header
     // printk(KERN_ALERT "Getting the IP addresses\n");
     iph = ip_hdr(skb);
-    // print_ip_addresses(&iph->saddr, &iph->daddr);
+    // print_ip_addresses_n(&iph->saddr, &iph->daddr);
 
     printk("vnic: %s vnic_transmit function called\n", dev->name);
 
@@ -396,7 +504,7 @@ void vnic_rx(struct net_device *dev, struct sk_buff *skb) {
 
     saddr = &iph->saddr;
     daddr = &iph->daddr;
-    print_ip_addresses(saddr, daddr);
+    print_ip_addresses_n(saddr, daddr);
 
 
     // Copy the data back into the skb
