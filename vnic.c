@@ -20,7 +20,7 @@ MODULE_LICENSE("Dual BSD/GPL");
 static int vnic_count = 2;
 static int print_packet = 0;
 static int pool_size = 8;
-static char *ip_mappings[MAX_VNICS];
+static char *ip_mappings[MAX_VNICS] = {"192.168.0.1", "192.168.1.2"};
 
 
 // TODO: Change this to work with as many addresses as required
@@ -570,6 +570,9 @@ void cleanup_vnic_module(void) {
     // free_netdev(my_device);
     kfree(vnic_devs);
     free_hash_table();
+
+    // Create visible break in kernel output
+    printk("vnic: \n\n\n");
 }
 
 /**
