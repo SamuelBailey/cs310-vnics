@@ -25,6 +25,8 @@ function add_argument {
 ip_file="./ip_mappings.txt"
 arguments="ip_mappings="
 first_ip=true
+address_count=0
+ip_addresses=()
 
 # Go through each line of the IP addresses file. If it is an IP address, add it, otherwise resolve it as a hostname
 while read -r line || [[ -n "$line" ]]; do
@@ -32,6 +34,8 @@ while read -r line || [[ -n "$line" ]]; do
 
   if is_ip_address $line; then
     add_argument "\"$line\""
+    ((address_count++))
+    ip_addresses+=($line)
 
   else
     ip=$(host $line | awk '/has address/ { print $4 ; exit }')
@@ -39,13 +43,39 @@ while read -r line || [[ -n "$line" ]]; do
     # Check that hostname has been successfully resolved
     if [[ -n $ip ]]; then
       add_argument "\"$ip\""
+      ((address_count++))
+      ip_addresses+=($ip)
     fi
   fi
 
 done < "$ip_file"
 
-echo "$arguments"
+echo "# insmod vnic.ko $arguments"
+insmod vnic.ko $arguments
 
-# insmod vnic.ko
+# Remove any existing network namespaces
+echo "# ip -all netns delete"
+ip -all netns delete
+
+# Create network namespaces
+for (( i=0; i<address_count; i++ )) do
+  echo "Setting up Device $i"
+  # Create the namespace
+  echo "# ip netns add space$i"
+  ip netns add space$i
+
+  # Associate the VNIC device with the namespace
+  echo "# ip link set vnic$i netns space$i"
+  ip link set vnic$i netns space$i
+
+  # Use ifconfig within the namespace to setup the VNIC device with the desired ip address
+  echo "# ip netns exec space$i ifconfig vnic$i up ${ip_addresses[$i]}"
+  ip netns exec space$i ifconfig vnic$i up ${ip_addresses[$i]}
+
+  echo "# ip netns exec space$i ifconfig"
+  ip netns exec space$i ifconfig
+done
+
+
 # ifconfig vnic0 l0
 # ifconfig vnic1 l1

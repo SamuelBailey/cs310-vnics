@@ -1,0 +1,27 @@
+#!/bin/bash
+if [ "$EUID" -ne 0 ]; then
+  echo "Please run as root"
+  exit
+fi
+
+# Deregister the network cards
+
+# Need to deregister one network card for each network namespace
+total_namespaces=$(ip netns list | wc -l)
+for (( i=0; i<total_namespaces; i++ )) do
+  # Stop the device operating in the current namespace
+  echo "# ip netns exec space$i ifconfig vnic$i down"
+  ip netns exec space$i ifconfig vnic$i down
+
+  # Disassociate the device with the current network namespace (back to default)
+  echo "# ip netns exec space$i ip link set vnic$i netns 1"
+  ip netns exec space$i ip link set vnic$i netns 1
+
+  # Delete the network namespace
+  echo "# ip netns delete space$i"
+  ip netns delete space$i
+done
+
+# Unload the module
+echo "# rmmod vnic"
+rmmod vnic
