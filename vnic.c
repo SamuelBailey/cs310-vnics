@@ -434,6 +434,7 @@ netdev_tx_t vnic_xmit(struct sk_buff *skb, struct net_device *dev) {
     struct vnic_priv *priv = netdev_priv(dev);
     struct iphdr *iph;
     struct net_device *dest_dev;
+    u32 dest_addr;
     
     // Get the IP address header
     // printk(KERN_ALERT "Getting the IP addresses\n");
@@ -463,12 +464,19 @@ netdev_tx_t vnic_xmit(struct sk_buff *skb, struct net_device *dev) {
 
     // TODO: Change this to look up based on IP address
     // All data goes to vnic 0 at the moment
-    dest_dev = vnic_devs[0];
-
-
+    // dest_dev = vnic_devs[0];
+    dest_dev = get_dev_from_hash_table(ntohl(iph->daddr));
+    if (!dest_dev) {
+        printk(KERN_ALERT "Dropped packet\n");
+        // Drop the packet if destination is null
+        dev_kfree_skb(skb);
+        return NETDEV_TX_OK;
+    }
+    printk("Transmitting packet\n");
+    // Otherwise, send the packet to the selected device
     vnic_rx(dest_dev, skb);
 
-
+    return NETDEV_TX_OK;
 
     // dev_kfree_skb(skb);
     // if (vnic_transfer(data, length, dest_dev)) {
@@ -477,8 +485,8 @@ netdev_tx_t vnic_xmit(struct sk_buff *skb, struct net_device *dev) {
     // }
     // DONT FREE THE DATA IF THE DEVICE IS BUSY
     // dev_kfree_skb(skb);
-    return NETDEV_TX_OK;
-    return NETDEV_TX_BUSY;
+    // return NETDEV_TX_OK;
+    // return NETDEV_TX_BUSY;
 }
 
 void vnic_rx(struct net_device *dev, struct sk_buff *skb) {
@@ -586,6 +594,11 @@ int setup_vnic_module(void) {
     int i;
     struct vnic_priv *priv;
     int result;
+
+    printk(KERN_ALERT "vnic: Listing devices to setup\n");
+    for (i = 0; i < vnic_count; i++) {
+        printk("%s \n", ip_mappings[i]);
+    }
 
     // Instantiate the array of net_devices
     vnic_devs = kmalloc_array(vnic_count, sizeof(struct net_device*), GFP_KERNEL);

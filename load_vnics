@@ -23,7 +23,7 @@ function add_argument {
 }
 
 ip_file="./ip_mappings.txt"
-arguments="ip_mappings="
+arguments="ip_mappings=\""
 first_ip=true
 address_count=0
 ip_addresses=()
@@ -38,7 +38,7 @@ while read -r line || [[ -n "$line" ]]; do
   fi
 
   if is_ip_address $line; then
-    add_argument "\"$line\""
+    add_argument "$line"
     ((address_count++))
     ip_addresses+=($line)
 
@@ -47,13 +47,14 @@ while read -r line || [[ -n "$line" ]]; do
 
     # Check that hostname has been successfully resolved
     if [[ -n $ip ]]; then
-      add_argument "\"$ip\""
+      add_argument "$ip"
       ((address_count++))
       ip_addresses+=($ip)
     fi
   fi
 
 done < "$ip_file"
+arguments+=\"
 
 echo "# insmod vnic.ko $arguments"
 insmod vnic.ko $arguments
