@@ -509,13 +509,17 @@ void vnic_rx(struct net_device *dev, struct sk_buff *skb) {
         printk("\n");
 	}
 
+    //
+    // Following snull - change the source and destination addresses
+    //
+
     iph = (struct iphdr *)(buf + sizeof(struct ethhdr));
-    saddr = &iph->saddr;
-    daddr = &iph->daddr;
-    ((u8 *)saddr)[2] ^= 1;
-    ((u8 *)daddr)[2] ^= 1;
-    iph->check = 0;         /* and rebuild the checksum (ip needs it) */
-	iph->check = ip_fast_csum((unsigned char *)iph,iph->ihl);
+    // saddr = &iph->saddr;
+    // daddr = &iph->daddr;
+    // ((u8 *)saddr)[2] ^= 1;
+    // ((u8 *)daddr)[2] ^= 1;
+    // iph->check = 0;         /* and rebuild the checksum (ip needs it) */
+	// iph->check = ip_fast_csum((unsigned char *)iph,iph->ihl);
 
     saddr = &iph->saddr;
     daddr = &iph->daddr;
