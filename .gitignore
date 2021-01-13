@@ -93,3 +93,6 @@ signing_key.priv
 signing_key.x509
 x509.genkey
 
+
+# Custom gitignores for this project
+ip_mappings.txt
