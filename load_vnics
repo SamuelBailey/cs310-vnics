@@ -22,11 +22,39 @@ function add_argument {
   arguments+="$1"
 }
 
+# Arguments:
+# $1 The line containing the ip address - the first item (index 0) should be the ip address
+# Returns 0 for success, 1 for failure
+function store_ip_address {
+  lineArr=($1)
+  if ! is_ip_address ${lineArr[0]}; then
+    # Invalid IP address
+    return 1
+  fi
+  ip_addresses+=(${lineArr[0]})
+  return 0
+}
+
+# Arguments:
+# $1 The line containing the subnet mask - the second item (index 1) should be a subnet mask.
+#    Default value is 0.0.0.0
+# Adds the subnet mask to the subnet_masks array variable
+function store_subnet_mask {
+  mask=($1)
+  if is_ip_address $mask; then
+    subnet_masks+=($mask)
+    return 0
+  fi
+  subnet_masks+=("0.0.0.0")
+  return 0
+}
+
 ip_file="./ip_mappings.txt"
 arguments="ip_mappings=\""
 first_ip=true
 address_count=0
 ip_addresses=()
+subnet_masks=()
 
 # Go through each line of the IP addresses file. If it is an IP address, add it, otherwise resolve it as a hostname
 while read -r line || [[ -n "$line" ]]; do
@@ -37,27 +65,63 @@ while read -r line || [[ -n "$line" ]]; do
     continue
   fi
 
-  if is_ip_address $line; then
-    add_argument "$line"
+  # Split the line into seperate arguments using space as delimiter
+  lineArr=($line)
+
+  if is_ip_address ${lineArr[0]}; then
+    add_argument "${lineArr[0]}"
     ((address_count++))
-    ip_addresses+=($line)
+    ip_addresses+=(${lineArr[0]})
+
+    # Check the second argument for the subnet mask
+    store_subnet_mask ${lineArr[1]}
 
   else
-    ip=$(host $line | awk '/has address/ { print $4 ; exit }')
+    ip=$(host ${lineArr[0]} | awk '/has address/ { print $4 ; exit }')
 
     # Check that hostname has been successfully resolved
     if [[ -n $ip ]]; then
       add_argument "$ip"
       ((address_count++))
       ip_addresses+=($ip)
+
+      # Check the second argument for the subnet mask
+      store_subnet_mask ${lineArr[1]}
+    else
+      echo "WARNING: unable to resolve host name: ${lineArr[0]}"
     fi
   fi
+
 
 done < "$ip_file"
 arguments+=\"
 
+# echo $arguments
+
+# echo "SUBNET MASKS"
+# for netmask in ${subnet_masks[@]}; do
+#   echo "$netmask"
+# done
+
+# echo ""
+# echo "IP ADDRESSES"
+# for addr in ${ip_addresses[@]}; do
+#   echo "$addr"
+# done
+
+# for (( i=0; i<${#ip_addresses[@]}; i++ )) do
+#   echo "IP: ${ip_addresses[i]} SUBNET_MASK: ${subnet_masks[i]}"
+# done
+
+#
+# Instantiate the kernel module vnic.ko
+#
 echo "# insmod vnic.ko $arguments"
 insmod vnic.ko $arguments
+
+#
+# Setup each device using ifconfig
+#
 
 # Remove any existing network namespaces
 echo "# ip -all netns delete"
@@ -75,12 +139,16 @@ for (( i=0; i<address_count; i++ )) do
   ip link set vnic$i netns space$i
 
   # Use ifconfig within the namespace to setup the VNIC device with the desired ip address
-  echo "# ip netns exec space$i ifconfig vnic$i up ${ip_addresses[$i]}"
-  ip netns exec space$i ifconfig vnic$i up ${ip_addresses[$i]}
+  # Add the subnet mask
+  echo "# ip netns exec space$i ifconfig vnic$i up ${ip_addresses[$i]} netmask ${subnet_masks[$i]}"
+  ip netns exec space$i ifconfig vnic$i up ${ip_addresses[$i]} netmask ${subnet_masks[$i]}
 
   echo "# ip netns exec space$i ifconfig"
   ip netns exec space$i ifconfig
 done
+
+
+
 
 
 # ifconfig vnic0 l0
