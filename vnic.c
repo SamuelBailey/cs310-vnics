@@ -72,9 +72,6 @@ struct vnic_priv {
 
 static struct net_device **vnic_devs;
 
-// For debugging
-static struct net_device *my_device;
-
 static const struct header_ops my_header_ops = {
     .create = vnic_header
 };
@@ -269,20 +266,39 @@ void vnic_init(struct net_device *dev) {
 int vnic_header(struct sk_buff *skb, struct net_device *dev,
                 unsigned short type, const void *daddr,
                 const void *saddr, unsigned int len) {
-
     //
     // Copied from SNULL - needs modifying to direct to MAC addresses of multiple VNICs
     //
 
     struct ethhdr *eth = (struct ethhdr *)skb_push(skb, ETH_HLEN);
+    // struct sk_buff *ip_skb = ((void *)skb) + ETH_HLEN;
+    struct iphdr *iph;
+    u32 ip_dest;
+    struct net_device *dest_dev;
 
     // Set the protocol
     eth->h_proto = htons(type);
     // If saddr or daddr is null, set to the addres of this device, else don't change
     memcpy(eth->h_source, saddr ? saddr : dev->dev_addr, dev->addr_len);
     memcpy(eth->h_dest, daddr ? daddr : dev->dev_addr, dev->addr_len);
-    // Set MAC dest addr len in header to the other VNIC - needs updating for final project
-    eth->h_dest[ETH_ALEN - 1] ^= 0x01; // XOR last bit of address - Change this
+
+    // Find the destination IP address of the packet, in order to determine the MAC address to route to
+    printk(KERN_ALERT "1\n");
+    iph = ip_hdr(skb);
+    printk(KERN_ALERT "2\n");
+    ip_dest = ntohl(iph->daddr);
+    printk(KERN_ALERT "3\n");
+    dest_dev = get_dev_from_hash_table(ip_dest);
+    printk(KERN_ALERT "4\n");
+    if (!dest_dev) {
+        printk(KERN_ALERT "Couldn't find device with ip addr %pI4\n", &(iph->daddr));
+        return (dev->hard_header_len);
+    }
+    printk(KERN_ALERT "Setting destination address %pM, ip addr: %pI4\n", dest_dev->dev_addr, &iph->daddr);
+    memcpy(eth->h_dest, dest_dev->dev_addr, dev->addr_len);
+
+    // // Set MAC dest addr len in header to the other VNIC - needs updating for final project
+    // eth->h_dest[ETH_ALEN - 1] ^= 0x01; // XOR last bit of address - Change this
     return (dev->hard_header_len);
 }
 
@@ -441,7 +457,11 @@ netdev_tx_t vnic_xmit(struct sk_buff *skb, struct net_device *dev) {
     iph = ip_hdr(skb);
     // print_ip_addresses_n(&iph->saddr, &iph->daddr);
 
-    printk("vnic: %s vnic_transmit function called\n", dev->name);
+    printk("\n\n");
+
+    printk("vnic: ============================================================================\n");
+    printk("vnic: Transmitting a new packet from %s\n", dev->name);
+
 
     length = skb->len;
     data = skb->data;
@@ -462,12 +482,11 @@ netdev_tx_t vnic_xmit(struct sk_buff *skb, struct net_device *dev) {
     // This memory gets freed during interrupt after sending. Need to store a reference to it to free it
     priv->skb = skb;
 
-    // TODO: Change this to look up based on IP address
-    // All data goes to vnic 0 at the moment
-    // dest_dev = vnic_devs[0];
+    // If the source address is NOT the network simulator, send it to the network simulator.
+    // Otherwise, send the 
     dest_dev = get_dev_from_hash_table(ntohl(iph->daddr));
     if (!dest_dev) {
-        printk(KERN_ALERT "Dropped packet\n");
+        // printk(KERN_ALERT "Dropped packet\n");
         // Drop the packet if destination is null
         dev_kfree_skb(skb);
         return NETDEV_TX_OK;
@@ -498,6 +517,8 @@ void vnic_rx(struct net_device *dev, struct sk_buff *skb) {
 
     // Need to build a socket buffer for the packet to be placed in, so
     // it can be passed to upper levels.
+
+    printk("vnic: Receiving packet on device %s\n", dev->name);
 
     //
     // We don't need to assign a buffer, because this has come from an internal
