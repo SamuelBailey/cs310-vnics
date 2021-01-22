@@ -283,13 +283,9 @@ int vnic_header(struct sk_buff *skb, struct net_device *dev,
     memcpy(eth->h_dest, daddr ? daddr : dev->dev_addr, dev->addr_len);
 
     // Find the destination IP address of the packet, in order to determine the MAC address to route to
-    printk(KERN_ALERT "1\n");
     iph = ip_hdr(skb);
-    printk(KERN_ALERT "2\n");
     ip_dest = ntohl(iph->daddr);
-    printk(KERN_ALERT "3\n");
     dest_dev = get_dev_from_hash_table(ip_dest);
-    printk(KERN_ALERT "4\n");
     if (!dest_dev) {
         printk(KERN_ALERT "Couldn't find device with ip addr %pI4\n", &(iph->daddr));
         return (dev->hard_header_len);
