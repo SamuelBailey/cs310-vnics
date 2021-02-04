@@ -72,6 +72,12 @@ struct vnic_priv {
 
 static struct net_device **vnic_devs;
 
+/**
+ * A pointer to device for the network simulator. All traffic goes to the netsim_netdev before being
+ * forwarded to its destination
+ */
+static struct net_device *netsim_netdev;
+
 static const struct header_ops my_header_ops = {
     .create = vnic_header
 };
@@ -226,6 +232,21 @@ void print_ip_addresses_n(u32 *saddr, u32 *daddr) {
 // saddr and daddr must be in Host byte order
 void print_ip_addresses_h(u32 *saddr, u32 *daddr) {
     printk("vnic: saddr: %pI4h, daddr: %pI4h \n", saddr, daddr);
+}
+
+/**
+ * Finds the destination device from the ip-header.
+ * \param from_netsim boolean flag. Should be set to True if the packet originated from the network simulator,
+ * and false from any other variable
+ * \return Pointer to the net_device to send the packet to.
+ */
+struct net_device *find_dest_dev(struct iphdr *iph, int from_netsim) {
+    if (!from_netsim) {
+        printk("vnic: Sending packet TO netsim");
+        return netsim_netdev;
+    }
+    printk("vnic: Sending packet FROM netsim");
+    return get_dev_from_hash_table(ntohl(iph->daddr));
 }
 
 /**
@@ -479,11 +500,12 @@ netdev_tx_t vnic_xmit(struct sk_buff *skb, struct net_device *dev) {
     priv->skb = skb;
 
     // If the source address is NOT the network simulator, send it to the network simulator.
-    // Otherwise, send the 
-    dest_dev = get_dev_from_hash_table(ntohl(iph->daddr));
+    dest_dev = find_dest_dev(iph, dev == netsim_netdev);
+    // dest_dev = get_dev_from_hash_table(ntohl(iph->daddr));
     if (!dest_dev) {
         // printk(KERN_ALERT "Dropped packet\n");
         // Drop the packet if destination is null
+        printk("vnic: Dropped packet\n");
         dev_kfree_skb(skb);
         return NETDEV_TX_OK;
     }
@@ -612,6 +634,11 @@ int setup_vnic_module(void) {
     struct vnic_priv *priv;
     int result;
 
+    if (vnic_count <= 0) {
+        printk(KERN_ALERT "Invalid vnic_count parameter. Must be > 0\n");
+        return -EINVAL;
+    }
+
     printk(KERN_ALERT "vnic: Listing devices to setup\n");
     for (i = 0; i < vnic_count; i++) {
         printk("%s \n", ip_mappings[i]);
@@ -635,6 +662,11 @@ int setup_vnic_module(void) {
         }
         vnic_devs[i]->netdev_ops = &my_ops;
         vnic_devs[i]->header_ops = &my_header_ops;
+    }
+
+    // Save a reference to the netsim net_device. This is the first device. Ensure that at least 1 device exists before doing so.
+    if (vnic_count > 0) {
+        netsim_netdev = vnic_devs[0];
     }
 
     // Setup hashtable of ip addresses to net_devices
