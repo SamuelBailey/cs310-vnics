@@ -4,22 +4,47 @@ if [ "$EUID" -ne 0 ]; then
   exit
 fi
 
+# Arguments:
+# $1 The number of the vnic to deregister
+# $2 The namespace from which to deregister the vnic
+function deregister_vnic_from_namespace {
+  echo "Deregistering vnic $1 from namespace $2"
+
+  # Stop the device operating in the current namespace
+  echo "# ip netns exec space$2 ifconfig vnic$1 down"
+  ip netns exec space$2 ifconfig vnic$1 down
+
+  # Disassociate the device with the current network namespace (back to default)
+  echo "# ip netns exec space$2 ip link set vnic$1 netns 1"
+  ip netns exec space$2 ip link set vnic$1 netns 1
+}
+
+# Arguments:
+# $1 The number of the namespace to delete
+function delete_namespace {
+  echo "Deleting namespace $1"
+
+  # Delete the network namespace
+  echo "# ip netns delete space$1"
+  ip netns delete space$1
+}
+
 # Deregister the network cards
 
 # Need to deregister one network card for each network namespace
+# Need to count number of namespaces before starting to delete them
 total_namespaces=$(ip netns list | wc -l)
-for (( i=0; i<total_namespaces; i++ )) do
-  # Stop the device operating in the current namespace
-  echo "# ip netns exec space$i ifconfig vnic$i down"
-  ip netns exec space$i ifconfig vnic$i down
+echo "Total namespaces = $total_namespaces"
 
-  # Disassociate the device with the current network namespace (back to default)
-  echo "# ip netns exec space$i ip link set vnic$i netns 1"
-  ip netns exec space$i ip link set vnic$i netns 1
+# Remove the network cards from the network simulator portion first
+deregister_vnic_from_namespace 0 1
+deregister_vnic_from_namespace 1 1
+delete_namespace 1
 
-  # Delete the network namespace
-  echo "# ip netns delete space$i"
-  ip netns delete space$i
+# Namespaces start at 1 rather than 0. Remove all namespaces after the netsim namespace has been removed
+for (( i=2; i<=total_namespaces; i++ )) do
+  deregister_vnic_from_namespace $i $i
+  delete_namespace $i
 done
 
 # Unload the module

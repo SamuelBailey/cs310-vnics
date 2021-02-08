@@ -75,8 +75,13 @@ static struct net_device **vnic_devs;
 /**
  * A pointer to device for the network simulator. All traffic goes to the netsim_netdev before being
  * forwarded to its destination
+ * netsim_rxdev is the device which receives data into the network simulator
  */
-static struct net_device *netsim_netdev;
+static struct net_device *netsim_rxdev;
+/**
+ * netsim_txdev transmits data from network simulator to other devices
+ */
+static struct net_device *netsim_txdev;
 
 static const struct header_ops my_header_ops = {
     .create = vnic_header
@@ -236,14 +241,13 @@ void print_ip_addresses_h(u32 *saddr, u32 *daddr) {
 
 /**
  * Finds the destination device from the ip-header.
- * \param from_netsim boolean flag. Should be set to True if the packet originated from the network simulator,
- * and false from any other variable
+ * \param send_dev pointer to the device from which the data is being sent
  * \return Pointer to the net_device to send the packet to.
  */
-struct net_device *find_dest_dev(struct iphdr *iph, int from_netsim) {
-    if (!from_netsim) {
+struct net_device *find_dest_dev(struct iphdr *iph, struct net_device *send_dev) {
+    if (send_dev != netsim_txdev) {
         printk("vnic: Sending packet TO netsim");
-        return netsim_netdev;
+        return netsim_rxdev;
     }
     printk("vnic: Sending packet FROM netsim");
     return get_dev_from_hash_table(ntohl(iph->daddr));
@@ -500,7 +504,7 @@ netdev_tx_t vnic_xmit(struct sk_buff *skb, struct net_device *dev) {
     priv->skb = skb;
 
     // If the source address is NOT the network simulator, send it to the network simulator.
-    dest_dev = find_dest_dev(iph, dev == netsim_netdev);
+    dest_dev = find_dest_dev(iph, dev);
     // dest_dev = get_dev_from_hash_table(ntohl(iph->daddr));
     if (!dest_dev) {
         // printk(KERN_ALERT "Dropped packet\n");
@@ -634,8 +638,8 @@ int setup_vnic_module(void) {
     struct vnic_priv *priv;
     int result;
 
-    if (vnic_count <= 0) {
-        printk(KERN_ALERT "Invalid vnic_count parameter. Must be > 0\n");
+    if (vnic_count < 2) {
+        printk(KERN_ALERT "Number of devices must be >= 2, since the network simulator requires a device for sending and receiving.\n");
         return -EINVAL;
     }
 
@@ -665,8 +669,9 @@ int setup_vnic_module(void) {
     }
 
     // Save a reference to the netsim net_device. This is the first device. Ensure that at least 1 device exists before doing so.
-    if (vnic_count > 0) {
-        netsim_netdev = vnic_devs[0];
+    if (vnic_count > 1) {
+        netsim_rxdev = vnic_devs[0];
+        netsim_txdev = vnic_devs[1];
     }
 
     // Setup hashtable of ip addresses to net_devices

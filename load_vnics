@@ -49,6 +49,31 @@ function store_subnet_mask {
   return 0
 }
 
+# Creates the network namespace
+# Arguments:
+# $1 The number of the namespace to create
+function create_network_namespace {
+  echo "Creating network namespace $1"
+  echo "# ip netns add space$1"
+  ip netns add space$1
+}
+
+# Assigns the vnic with number $1 to the network namespace with number $2
+function assign_vnic_to_namespace {
+  echo "Connecting vnic $1 to namespace $2"
+  # Associate the VNIC device with the namespace
+  echo "# ip link set vnic$1 netns space$2"
+  ip link set vnic$1 netns space$2
+
+  # Use ifconfig within the namespace to setup the VNIC device with the desired ip address
+  # Add the subnet mask
+  echo "# ip netns exec space$2 ifconfig vnic$1 up ${ip_addresses[$1]} netmask ${subnet_masks[$1]}"
+  ip netns exec space$2 ifconfig vnic$1 up ${ip_addresses[$1]} netmask ${subnet_masks[$1]}
+
+  echo "# ip netns exec space$2 ifconfig"
+  ip netns exec space$2 ifconfig
+}
+
 ip_file="./ip_mappings.txt"
 arguments="ip_mappings=\""
 first_ip=true
@@ -127,25 +152,23 @@ insmod vnic.ko $arguments
 echo "# ip -all netns delete"
 ip -all netns delete
 
+
+# Create the network namespace for the network simulator
+# VNICs 0 and 1 live in space1
+create_network_namespace 1
+assign_vnic_to_namespace 0 1
+assign_vnic_to_namespace 1 1
+
+# Create the rest of the namespaces, and assign the vnics to them
+
 # Create network namespaces
-for (( i=0; i<address_count; i++ )) do
-  echo "Setting up Device $i"
-  # Create the namespace
-  echo "# ip netns add space$i"
-  ip netns add space$i
+for (( i=2; i<address_count; i++ )) do
 
-  # Associate the VNIC device with the namespace
-  echo "# ip link set vnic$i netns space$i"
-  ip link set vnic$i netns space$i
+  create_network_namespace $i
+  assign_vnic_to_namespace $i $i
 
-  # Use ifconfig within the namespace to setup the VNIC device with the desired ip address
-  # Add the subnet mask
-  echo "# ip netns exec space$i ifconfig vnic$i up ${ip_addresses[$i]} netmask ${subnet_masks[$i]}"
-  ip netns exec space$i ifconfig vnic$i up ${ip_addresses[$i]} netmask ${subnet_masks[$i]}
-
-  echo "# ip netns exec space$i ifconfig"
-  ip netns exec space$i ifconfig
 done
+
 
 
 
