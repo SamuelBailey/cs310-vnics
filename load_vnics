@@ -76,6 +76,7 @@ function create_network_namespace {
 # $2 The id number of the namespace
 # $3 The ip_addr of the vnic
 # $4 The subnet mask of the vnic
+# $5 The deafult gateway of the vnic
 function assign_vnic_to_namespace {
   echo "Connecting vnic $1 to namespace $2"
   # Associate the VNIC device with the namespace
@@ -86,6 +87,11 @@ function assign_vnic_to_namespace {
   # Add the subnet mask
   echo "# ip netns exec space$2 ifconfig vnic$1 up $3 netmask $4"
   ip netns exec space$2 ifconfig vnic$1 up $3 netmask $4
+
+  if [[ -n $5 ]] && [[ $5 != "null"  ]] ; then
+    echo "# ip netns exec space$2 ip route add default via $5"
+    ip netns exec space$2 ip route add default via $5
+  fi
 
   echo "# ip netns exec space$2 ifconfig"
   ip netns exec space$2 ifconfig
@@ -216,6 +222,7 @@ insmod vnic.ko $arguments
 # Assign vnics to namespaces
 #
 for (( i=0; i<valid_vnic_count; i++ )) do
-  assign_vnic_to_namespace ${vnic_ids[$i]} ${vnic_namespaces[$i]} ${vnic_ip_addrs[$i]} ${vnic_subnet_masks[$i]}
+  assign_vnic_to_namespace ${vnic_ids[$i]} ${vnic_namespaces[$i]}\
+    ${vnic_ip_addrs[$i]} ${vnic_subnet_masks[$i]} ${vnic_gateways[$i]}
 done
 

@@ -22,7 +22,7 @@
         },
         {
             "id": 3,
-            "namespace": 7,
+            "namespace": 3,
             "ip_addr": "192.168.0.40",
             "subnet_mask": "255.255.255.0"
         }
