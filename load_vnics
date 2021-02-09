@@ -1,0 +1,221 @@
+#!/bin/bash
+if [ "$EUID" -ne 0 ]; then
+  echo "Please run as root"
+  exit
+fi
+
+# Declare the configuration file
+config="vnic_config.json"
+
+vnic_count=$(jq ".vnics | length" $config)
+
+arguments="ip_mappings=\""
+
+##
+## FUNCTIONS
+##
+
+function is_ip_address {
+  regex="^(0*(1?[0-9]{1,2}|2([0-4][0-9]|5[0-5]))\.){3}0*(1?[0-9]{1,2}|2([‌​0-4][0-9]|5[0-5]))$"
+  if [[ $1 =~ $regex ]]; then
+    return 0 # success
+  else
+    return 1 # fail
+  fi
+}
+
+first_ip=true
+function add_argument {
+  if [ "$first_ip" = false ]; then
+    arguments+=","
+  else
+    first_ip=false
+  fi
+  arguments+="$1"
+}
+
+# Arguments:
+# $1 The line containing the ip address - the first item (index 0) should be the ip address
+# Returns 0 for success, 1 for failure
+function store_ip_address {
+  lineArr=($1)
+  if ! is_ip_address ${lineArr[0]}; then
+    # Invalid IP address
+    return 1
+  fi
+  ip_addresses+=(${lineArr[0]})
+  return 0
+}
+
+# Arguments:
+# $1 The line containing the subnet mask - the second item (index 1) should be a subnet mask.
+#    Default value is 0.0.0.0
+# Adds the subnet mask to the subnet_masks array variable
+function store_subnet_mask {
+  mask=($1)
+  if is_ip_address $mask; then
+    subnet_masks+=($mask)
+    return 0
+  fi
+  subnet_masks+=("0.0.0.0")
+  return 0
+}
+
+# Creates the network namespace
+# Arguments:
+# $1 The number of the namespace to create
+function create_network_namespace {
+  echo "Creating network namespace $1"
+  echo "# ip netns add space$1"
+  ip netns add space$1
+}
+
+# Assigns the vnic with number $1 to the network namespace with number $2
+# Arguments:
+# $1 The id number of the vnic
+# $2 The id number of the namespace
+# $3 The ip_addr of the vnic
+# $4 The subnet mask of the vnic
+function assign_vnic_to_namespace {
+  echo "Connecting vnic $1 to namespace $2"
+  # Associate the VNIC device with the namespace
+  echo "# ip link set vnic$1 netns space$2"
+  ip link set vnic$1 netns space$2
+
+  # Use ifconfig within the namespace to setup the VNIC device with the desired ip address
+  # Add the subnet mask
+  echo "# ip netns exec space$2 ifconfig vnic$1 up $3 netmask $4"
+  ip netns exec space$2 ifconfig vnic$1 up $3 netmask $4
+
+  echo "# ip netns exec space$2 ifconfig"
+  ip netns exec space$2 ifconfig
+}
+
+##
+## END OF FUNCTIONS
+##
+
+
+valid_vnic_count=0
+vnic_ids=()
+vnic_namespaces=()
+vnic_ip_addrs=()
+vnic_subnet_masks=()
+vnic_gateways=()
+
+all_namespaces=()
+
+# Parse input from json file
+for (( i=0; i<vnic_count; i++ )) do
+    current_vnic=$(jq ".vnics[$i]" $config)
+
+    id=$(jq -r ".id" <<< $current_vnic)
+    if [[ $id == "null" ]]; then
+        echo "Skipping vnic. Does not contain 'id' field"
+        continue
+    fi
+
+    namespace=$(jq -r ".namespace" <<< $current_vnic)
+    if [[ $namespace == "null" ]]; then
+        echo "Skipping vnic. Does not contain 'namespace' field"
+        continue
+    fi
+
+    ip_addr=$(jq -r ".ip_addr" <<< $current_vnic)
+    if [[ $ip_addr == "null" ]]; then
+        echo "Skipping vnic. Does not contain 'ip_addr' field"
+        continue
+    fi
+
+    subnet_mask=$(jq -r ".subnet_mask" <<< $current_vnic)
+    if [[ $subnet_mask == "null" ]]; then
+        echo "Does not contain 'subnet_mask' field, setting to default value"
+        subnet_mask="255.255.255.0"
+    fi
+
+    # No test required for gateway, since this field can be null
+    gateway=$(jq -r ".gateway" <<< $current_vnic)
+
+    echo ""
+    echo "Creating VNIC with parameters:"
+    echo "    name:        vnic$id"
+    echo "    namespace:   space$namespace"
+    echo "    ip_addr:     $ip_addr"
+    echo "    subnet_mask: $subnet_mask"
+    echo "    gateway:     $gateway"
+
+    ###
+    #   Performing input checks
+    ###
+
+    if ! [[ $id =~ ^[0-9]+$ ]]; then
+        echo "id must be a number $id, skipping"
+        continue
+    fi
+
+    if ! [[ $namespace =~ ^[0-9]+$ ]]; then
+        echo "namespace must be a number $namespace, skipping"
+        continue
+    fi
+
+    # This is the simplest way I found of checking if the result of a command
+    # returns a failed exit status
+    is_ip_address $ip_addr || {
+        echo "looking up ip address $ip_addr"
+        ip_addr=$(host $ip_addr | awk '/has address/ { print $4 ; exit }')
+
+        if [[ ! $ip_addr ]]; then
+            echo "Unable to resolve ip address, skipping."
+            continue
+        fi
+        echo "Resolved ip_addr to: $ip_addr"
+    }
+    add_argument "$ip_addr"
+
+    is_ip_address $subnet_mask || {
+        echo "invalid subnet mask $subnet_mask, skipping."
+        continue
+    }
+    # To separate prints to the terminal
+    echo ""
+
+    vnic_ids+=($id)
+    vnic_namespaces+=($namespace)
+    vnic_ip_addrs+=($ip_addr)
+    vnic_subnet_masks+=($subnet_mask)
+    vnic_gateways+=($gateway)
+
+    if ! [[ "${all_namespaces[@]}" =~ $namespace ]]; then
+        all_namespaces+=($namespace)
+    fi
+
+    valid_vnic_count=$((valid_vnic_count+1))
+done
+
+arguments+="\""
+
+#
+# Create the network namespaces
+#
+
+# Remove any existing network namespaces
+echo "# ip -all netns delete"
+ip -all netns delete
+
+for current_namespace in "${all_namespaces[@]}"; do
+    create_network_namespace $current_namespace
+done
+
+#
+# start up the kernel module
+#
+echo "# insmod vnic.ko $arguments"
+insmod vnic.ko $arguments
+
+#
+# Assign vnics to namespaces
+#
+for (( i=0; i<valid_vnic_count; i++ )) do
+    assign_vnic_to_namespace ${vnic_ids[$i]} ${vnic_namespaces[$i]} ${vnic_ip_addrs[$i]} ${vnic_subnet_masks[$i]}
+done
+

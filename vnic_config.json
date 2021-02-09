@@ -1,0 +1,30 @@
+{
+    "vnics": [{
+            "id": 0,
+            "namespace": 1,
+            "ip_addr": "192.168.0.10",
+            "subnet_mask": "255.255.255.0",
+            "gateway": "192.168.0.1"
+        },
+        {
+            "id": 1,
+            "namespace": 1,
+            "ip_addr": "192.168.0.20",
+            "subnet_mask": "255.255.255.0",
+            "gateway": "192.168.0.1"
+        },
+        {
+            "id": 2,
+            "namespace": 2,
+            "ip_addr": "192.168.0.30",
+            "subnet_mask": "255.255.255.0",
+            "gateway": "192.168.0.1"
+        },
+        {
+            "id": 3,
+            "namespace": 7,
+            "ip_addr": "192.168.0.40",
+            "subnet_mask": "255.255.255.0"
+        }
+    ]
+}
