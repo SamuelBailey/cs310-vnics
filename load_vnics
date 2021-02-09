@@ -107,89 +107,89 @@ all_namespaces=()
 
 # Parse input from json file
 for (( i=0; i<vnic_count; i++ )) do
-    current_vnic=$(jq ".vnics[$i]" $config)
+  current_vnic=$(jq ".vnics[$i]" $config)
 
-    id=$(jq -r ".id" <<< $current_vnic)
-    if [[ $id == "null" ]]; then
-        echo "Skipping vnic. Does not contain 'id' field"
-        continue
+  id=$(jq -r ".id" <<< $current_vnic)
+  if [[ $id == "null" ]]; then
+    echo "Skipping vnic. Does not contain 'id' field"
+    continue
+  fi
+
+  namespace=$(jq -r ".namespace" <<< $current_vnic)
+  if [[ $namespace == "null" ]]; then
+    echo "Skipping vnic. Does not contain 'namespace' field"
+    continue
+  fi
+
+  ip_addr=$(jq -r ".ip_addr" <<< $current_vnic)
+  if [[ $ip_addr == "null" ]]; then
+    echo "Skipping vnic. Does not contain 'ip_addr' field"
+    continue
+  fi
+
+  subnet_mask=$(jq -r ".subnet_mask" <<< $current_vnic)
+  if [[ $subnet_mask == "null" ]]; then
+    echo "Does not contain 'subnet_mask' field, setting to default value"
+    subnet_mask="255.255.255.0"
+  fi
+
+  # No test required for gateway, since this field can be null
+  gateway=$(jq -r ".gateway" <<< $current_vnic)
+
+  echo ""
+  echo "Creating VNIC with parameters:"
+  echo "    name:        vnic$id"
+  echo "    namespace:   space$namespace"
+  echo "    ip_addr:     $ip_addr"
+  echo "    subnet_mask: $subnet_mask"
+  echo "    gateway:     $gateway"
+
+  ###
+  #   Performing input checks
+  ###
+
+  if ! [[ $id =~ ^[0-9]+$ ]]; then
+    echo "id must be a number $id, skipping"
+    continue
+  fi
+
+  if ! [[ $namespace =~ ^[0-9]+$ ]]; then
+    echo "namespace must be a number $namespace, skipping"
+    continue
+  fi
+
+  # This is the simplest way I found of checking if the result of a command
+  # returns a failed exit status
+  is_ip_address $ip_addr || {
+    echo "looking up ip address $ip_addr"
+    ip_addr=$(host $ip_addr | awk '/has address/ { print $4 ; exit }')
+
+    if [[ ! $ip_addr ]]; then
+      echo "Unable to resolve ip address, skipping."
+      continue
     fi
+    echo "Resolved ip_addr to: $ip_addr"
+  }
+  add_argument "$ip_addr"
 
-    namespace=$(jq -r ".namespace" <<< $current_vnic)
-    if [[ $namespace == "null" ]]; then
-        echo "Skipping vnic. Does not contain 'namespace' field"
-        continue
-    fi
+  is_ip_address $subnet_mask || {
+    echo "invalid subnet mask $subnet_mask, skipping."
+    continue
+  }
+  # To separate prints to the terminal
+  echo ""
 
-    ip_addr=$(jq -r ".ip_addr" <<< $current_vnic)
-    if [[ $ip_addr == "null" ]]; then
-        echo "Skipping vnic. Does not contain 'ip_addr' field"
-        continue
-    fi
+  vnic_ids+=($id)
+  vnic_namespaces+=($namespace)
+  vnic_ip_addrs+=($ip_addr)
+  vnic_subnet_masks+=($subnet_mask)
+  vnic_gateways+=($gateway)
 
-    subnet_mask=$(jq -r ".subnet_mask" <<< $current_vnic)
-    if [[ $subnet_mask == "null" ]]; then
-        echo "Does not contain 'subnet_mask' field, setting to default value"
-        subnet_mask="255.255.255.0"
-    fi
+  if ! [[ "${all_namespaces[@]}" =~ $namespace ]]; then
+    all_namespaces+=($namespace)
+  fi
 
-    # No test required for gateway, since this field can be null
-    gateway=$(jq -r ".gateway" <<< $current_vnic)
-
-    echo ""
-    echo "Creating VNIC with parameters:"
-    echo "    name:        vnic$id"
-    echo "    namespace:   space$namespace"
-    echo "    ip_addr:     $ip_addr"
-    echo "    subnet_mask: $subnet_mask"
-    echo "    gateway:     $gateway"
-
-    ###
-    #   Performing input checks
-    ###
-
-    if ! [[ $id =~ ^[0-9]+$ ]]; then
-        echo "id must be a number $id, skipping"
-        continue
-    fi
-
-    if ! [[ $namespace =~ ^[0-9]+$ ]]; then
-        echo "namespace must be a number $namespace, skipping"
-        continue
-    fi
-
-    # This is the simplest way I found of checking if the result of a command
-    # returns a failed exit status
-    is_ip_address $ip_addr || {
-        echo "looking up ip address $ip_addr"
-        ip_addr=$(host $ip_addr | awk '/has address/ { print $4 ; exit }')
-
-        if [[ ! $ip_addr ]]; then
-            echo "Unable to resolve ip address, skipping."
-            continue
-        fi
-        echo "Resolved ip_addr to: $ip_addr"
-    }
-    add_argument "$ip_addr"
-
-    is_ip_address $subnet_mask || {
-        echo "invalid subnet mask $subnet_mask, skipping."
-        continue
-    }
-    # To separate prints to the terminal
-    echo ""
-
-    vnic_ids+=($id)
-    vnic_namespaces+=($namespace)
-    vnic_ip_addrs+=($ip_addr)
-    vnic_subnet_masks+=($subnet_mask)
-    vnic_gateways+=($gateway)
-
-    if ! [[ "${all_namespaces[@]}" =~ $namespace ]]; then
-        all_namespaces+=($namespace)
-    fi
-
-    valid_vnic_count=$((valid_vnic_count+1))
+  valid_vnic_count=$((valid_vnic_count+1))
 done
 
 arguments+="\""
@@ -203,7 +203,7 @@ echo "# ip -all netns delete"
 ip -all netns delete
 
 for current_namespace in "${all_namespaces[@]}"; do
-    create_network_namespace $current_namespace
+  create_network_namespace $current_namespace
 done
 
 #
@@ -216,6 +216,6 @@ insmod vnic.ko $arguments
 # Assign vnics to namespaces
 #
 for (( i=0; i<valid_vnic_count; i++ )) do
-    assign_vnic_to_namespace ${vnic_ids[$i]} ${vnic_namespaces[$i]} ${vnic_ip_addrs[$i]} ${vnic_subnet_masks[$i]}
+  assign_vnic_to_namespace ${vnic_ids[$i]} ${vnic_namespaces[$i]} ${vnic_ip_addrs[$i]} ${vnic_subnet_masks[$i]}
 done
 
