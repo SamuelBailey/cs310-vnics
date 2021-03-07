@@ -4,8 +4,31 @@ if [ "$EUID" -ne 0 ]; then
   exit
 fi
 
-echo "# ip -all netns delete"
-ip -all netns delete
+# Delete all of the vnics
+# namespaces=$(ip netns list | grep -oP space[0-9]+)
+# for namespace in $namespaces; do
+#     vnics=$(ip netns exec $namespace ifconfig | grep -oP vnic[0-9]+)
+#     for vnic in $vnics; do
+#         # echo "# ip netns exec $namespace ifconfig $vnic down"
+#         # ip netns exec $namespace ifconfig $vnic down
+#         echo "ip netns exec $namespace ifdown $vnic"
+#         ip netns exec $namespace ifdown $vnic
+#     done
+# done
 
+
+
+# # Remove any pesky vnics that stuck around
+# vnics=$(ifconfig | grep -oP vnic[0-9]+)
+# for vnic in $vnics; do
+#     echo "# ifconfig $vnic down"
+#     ifconfig $vnic down
+# done
+
+# Remove the vnic kernel module
 echo "# rmmod vnic"
 rmmod vnic
+
+# Remove the network namespaces
+echo "# ip -all netns delete"
+ip -all netns delete

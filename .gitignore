@@ -96,3 +96,5 @@ x509.genkey
 
 # Custom gitignores for this project
 ip_mappings.txt
+
+*.mod
