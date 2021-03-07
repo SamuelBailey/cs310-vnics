@@ -16,11 +16,15 @@ MODULE_LICENSE("Dual BSD/GPL");
  * vnic_count : the number of vnics to instantiate on module load
  * print_packet : bool, whether the packets should be printed on transmission
  * pool_size : int, the number of packets that the pool should be able to contain.
+ * ip_mappings : Array of ip addresses for the VNICs
+ * mac_mappings : Array of MAC addresses for the VNICs
  */
 static int vnic_count = 2;
 static int print_packet = 0;
 static int pool_size = 8;
 static char *ip_mappings[MAX_VNICS] = {"192.168.0.1", "192.168.1.2"};
+// The default values spell out 0VNIC0 and 0VNIC1. The first bit is 0 by convention to say they do not support multicast
+static char *mac_mappings[MAX_VNICS] = {"00:54:4e:49:43:00", "00:54:4e:49:43:00"};
 
 
 // TODO: Change this to work with as many addresses as required
@@ -30,6 +34,7 @@ static char *ip_mappings[MAX_VNICS] = {"192.168.0.1", "192.168.1.2"};
 module_param(print_packet, int, 0644);
 module_param(pool_size, int, 0644);
 module_param_array(ip_mappings, charp, &vnic_count, 0644);
+module_param_array(mac_mappings, charp, &vnic_count, 0644);
 
 /**
  * ===============================================================
@@ -100,6 +105,36 @@ static const struct net_device_ops my_ops = {
  *                         Helper methods
  * ===============================================================
  */
+
+/**
+ * \brief Converts a mac address from a string to a uint8_t array
+ * \param mac_str The input MAC address in colon-separated Hex. Make sure hex values above 9 are --lower case--.
+ * \param mac_arr A pointer to the start of a 6-byte array in which to store the mac address
+ * \returns -1 on error, 0 on success
+ */
+int mac_str_to_arr(char *mac_str, u8 *mac_arr) {
+    int index = 0;
+    int output_index = 0;
+    char current_str[3] = "00";
+
+    do {
+        if (mac_str[index] != '\0' && mac_str[index + 1] != '\0') {
+            u8 temp;
+
+            // Copy two characters to the currentStr
+            memcpy(current_str, mac_str + index, sizeof(char) * 2);
+            kstrtou8(current_str, 16, &temp);
+            mac_arr[output_index++] = (unsigned char)temp;
+        } else {
+            return -1;
+        }
+
+        index += 2;
+        // If there is a ':', process the next Hex pair
+    } while (mac_str[index++] == ':');
+    return 0;
+}
+
 
 // Takes a dotted decimal IP address, terminated by a null character, and returns the IP address
 // as an unsigned int
@@ -371,7 +406,7 @@ int vnic_dev_init(struct net_device *dev) {
  * Sets the MAC address for the device
  */
 int vnic_open(struct net_device *dev) {
-
+    // TODO: Change to allocate based on a lookup
     static unsigned char value = 0x00;
 
     printk("vnic: vnic_open called\n");
