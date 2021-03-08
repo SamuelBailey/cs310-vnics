@@ -9,7 +9,10 @@ config="vnic_config.json"
 
 vnic_count=$(jq ".vnics | length" $config)
 
-arguments="ip_mappings=\""
+arguments=""
+
+ip_arguments=""
+mac_arguments=""
 
 ##
 ## FUNCTIONS
@@ -24,14 +27,33 @@ function is_ip_address {
   fi
 }
 
+function is_mac_address {
+  regex="^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$"
+  if [[ $1 =~ $regex ]]; then
+    return 0 # success
+  else
+    return 1 # fail
+  fi
+}
+
 first_ip=true
-function add_argument {
+function add_ip_argument {
   if [ "$first_ip" = false ]; then
-    arguments+=","
+    ip_arguments+=","
   else
     first_ip=false
   fi
-  arguments+="$1"
+  ip_arguments+="$1"
+}
+
+first_mac=true
+function add_mac_argument {
+  if [ "$first_mac" = false ]; then
+    mac_arguments+=","
+  else
+    first_mac=false
+  fi
+  mac_arguments+="$1"
 }
 
 # Arguments:
@@ -142,6 +164,12 @@ for (( i=0; i<vnic_count; i++ )) do
   # No test required for gateway, since this field can be null
   gateway=$(jq -r ".gateway" <<< $current_vnic)
 
+  mac=$(jq -r ".mac" <<< $current_vnic)
+  if [[ $mac == "null" ]]; then
+    echo "Skipping vnic. Does not contain 'mac' field"
+    continue
+  fi
+
   echo ""
   echo "Creating VNIC with parameters:"
   echo "    name:        vnic$id"
@@ -149,6 +177,7 @@ for (( i=0; i<vnic_count; i++ )) do
   echo "    ip_addr:     $ip_addr"
   echo "    subnet_mask: $subnet_mask"
   echo "    gateway:     $gateway"
+  echo "    mac:         $mac"
 
   ###
   #   Performing input checks
@@ -176,12 +205,19 @@ for (( i=0; i<vnic_count; i++ )) do
     fi
     echo "Resolved ip_addr to: $ip_addr"
   }
-  add_argument "$ip_addr"
+  add_ip_argument "$ip_addr"
 
   is_ip_address $subnet_mask || {
     echo "invalid subnet mask $subnet_mask, skipping."
     continue
   }
+
+  is_mac_address $mac || {
+    echo "invalid mac address $mac, skipping."
+    continue
+  }
+  add_mac_argument "$mac"
+
   # To separate prints to the terminal
   echo ""
 
@@ -198,7 +234,11 @@ for (( i=0; i<vnic_count; i++ )) do
   valid_vnic_count=$((valid_vnic_count+1))
 done
 
-arguments+="\""
+arguments+="ip_mappings=\"$ip_arguments\""
+arguments+=" "
+arguments+="mac_mappings=\"$mac_arguments\""
+
+echo $arguments
 
 #
 # Create the network namespaces

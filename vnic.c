@@ -20,6 +20,7 @@ MODULE_LICENSE("Dual BSD/GPL");
  * mac_mappings : Array of MAC addresses for the VNICs
  */
 static int vnic_count = 2;
+static int mac_count = 2;
 static int print_packet = 0;
 static int pool_size = 8;
 static char *ip_mappings[MAX_VNICS] = {"192.168.0.1", "192.168.1.2"};
@@ -34,7 +35,7 @@ static char *mac_mappings[MAX_VNICS] = {"00:54:4e:49:43:00", "00:54:4e:49:43:00"
 module_param(print_packet, int, 0644);
 module_param(pool_size, int, 0644);
 module_param_array(ip_mappings, charp, &vnic_count, 0644);
-module_param_array(mac_mappings, charp, &vnic_count, 0644);
+module_param_array(mac_mappings, charp, &mac_count, 0644);
 
 /**
  * ===============================================================
@@ -112,7 +113,7 @@ static const struct net_device_ops my_ops = {
  * \param mac_arr A pointer to the start of a 6-byte array in which to store the mac address
  * \returns -1 on error, 0 on success
  */
-int mac_str_to_arr(char *mac_str, u8 *mac_arr) {
+int mac_str_to_arr(char *mac_str, unsigned char *mac_arr) {
     int index = 0;
     int output_index = 0;
     char current_str[3] = "00";
@@ -407,13 +408,33 @@ int vnic_dev_init(struct net_device *dev) {
  */
 int vnic_open(struct net_device *dev) {
     // TODO: Change to allocate based on a lookup
-    static unsigned char value = 0x00;
+    // static unsigned char value = 0x00;
+    unsigned char mac_addr[6];
+    int found_mac = 0;
+    int i;
 
     printk("vnic: vnic_open called\n");
+
+    // Get the MAC address for the VNIC
+    for (i = 0; i < vnic_count; i++) {
+        if (dev == vnic_devs[i]) {
+            found_mac = 1;
+            mac_str_to_arr(mac_mappings[i], mac_addr);
+        }
+    }
+
+    if (!found_mac) {
+        // Failed to find mac_addr
+        return -1;
+    }
+
     // Start with a \0 to indicate not multicast address
-    unsigned char address[ETH_ALEN] = "\0VNIC0";
-    address[ETH_ALEN-1] = value++;
-    memcpy(dev->dev_addr, address, ETH_ALEN);
+    // unsigned char address[ETH_ALEN] = "\0VNIC0";
+    // address[ETH_ALEN-1] = value++;
+    // memcpy(dev->dev_addr, address, ETH_ALEN);
+
+    memcpy(dev->dev_addr, mac_addr, ETH_ALEN);
+
     printk(KERN_ALERT "vnic: opening device %pMF", dev->dev_addr);
     netif_start_queue(dev);
     return 0;
@@ -478,7 +499,8 @@ int vnic_transfer(char *buf, int len, struct net_device *dev) {
     }
 
     // Very simple implementation - if vnic0, send to vnic1, else send to vnic0
-    if (strcmp(dev->name, vnic_devs[0]->name) == 0) {
+    // if (strcmp(dev->name, vnic_devs[0]->name) == 0) {
+    if (dev == vnic_devs[0]) {
         dest_dev = vnic_devs[1];
     } else {
         dest_dev = vnic_devs[0];
@@ -506,7 +528,7 @@ netdev_tx_t vnic_xmit(struct sk_buff *skb, struct net_device *dev) {
     struct vnic_priv *priv = netdev_priv(dev);
     struct iphdr *iph;
     struct net_device *dest_dev;
-    u32 dest_addr;
+    // u32 dest_addr;
     
     // Get the IP address header
     // printk(KERN_ALERT "Getting the IP addresses\n");
@@ -675,6 +697,11 @@ int setup_vnic_module(void) {
 
     if (vnic_count < 2) {
         printk(KERN_ALERT "Number of devices must be >= 2, since the network simulator requires a device for sending and receiving.\n");
+        return -EINVAL;
+    }
+
+    if (mac_count != vnic_count) {
+        printk(KERN_ALERT "vnic: Number of MAC addresses should match number of IP Addresses");
         return -EINVAL;
     }
 
