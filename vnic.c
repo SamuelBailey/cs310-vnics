@@ -348,10 +348,10 @@ int vnic_header(struct sk_buff *skb, struct net_device *dev,
     ip_dest = ntohl(iph->daddr);
     dest_dev = get_dev_from_hash_table(ip_dest);
     if (!dest_dev) {
-        printk(KERN_ALERT "Couldn't find device with ip addr %pI4\n", &(iph->daddr));
+        printk(KERN_INFO "No registered device with ip addr: %pI4\n", &(iph->daddr));
         return (dev->hard_header_len);
     }
-    printk(KERN_ALERT "Setting destination address %pM, ip addr: %pI4\n", dest_dev->dev_addr, &iph->daddr);
+    printk(KERN_INFO "Setting destination address %pM, ip addr: %pI4\n", dest_dev->dev_addr, &iph->daddr);
     memcpy(eth->h_dest, dest_dev->dev_addr, dev->addr_len);
 
     // // Set MAC dest addr len in header to the other VNIC - needs updating for final project
