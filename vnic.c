@@ -435,7 +435,7 @@ int vnic_open(struct net_device *dev) {
 
     memcpy(dev->dev_addr, mac_addr, ETH_ALEN);
 
-    printk(KERN_ALERT "vnic: opening device %pMF", dev->dev_addr);
+    printk(KERN_INFO "vnic: opening device %pMF", dev->dev_addr);
     netif_start_queue(dev);
     return 0;
 }
