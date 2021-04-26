@@ -27,11 +27,6 @@ static char *ip_mappings[MAX_VNICS] = {"192.168.0.1", "192.168.1.2"};
 // The default values spell out 0VNIC0 and 0VNIC1. The first bit is 0 by convention to say they do not support multicast
 static char *mac_mappings[MAX_VNICS] = {"00:54:4e:49:43:00", "00:54:4e:49:43:00"};
 
-
-// TODO: Change this to work with as many addresses as required
-// Done this way for proof of concept and getting things up and running
-
-// module_param(vnic_count, int, 0644);
 module_param(print_packet, int, 0644);
 module_param(pool_size, int, 0644);
 module_param_array(ip_mappings, charp, &vnic_count, 0644);
@@ -321,6 +316,8 @@ void vnic_init(struct net_device *dev) {
 
     vnic_setup_packet_pool(dev);
 
+    dev->netdev_ops = &my_ops;
+    dev->header_ops = &my_header_ops;
     printk("vnic: vnic_init()\n");
 }
 
@@ -726,8 +723,6 @@ int setup_vnic_module(void) {
             cleanup_vnic_module();
             return -ENOMEM;
         }
-        vnic_devs[i]->netdev_ops = &my_ops;
-        vnic_devs[i]->header_ops = &my_header_ops;
     }
 
     // Save a reference to the netsim net_device. This is the first device. Ensure that at least 1 device exists before doing so.
