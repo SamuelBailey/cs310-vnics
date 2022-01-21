@@ -131,9 +131,10 @@ int mac_str_to_arr(char *mac_str, unsigned char *mac_arr) {
     return 0;
 }
 
-
-// Takes a dotted decimal IP address, terminated by a null character, and returns the IP address
-// as an unsigned int
+/**
+ * Takes a dotted decimal IP address, terminated by a null character, and returns the IP address
+ * as an unsigned int
+ */
 uint32_t ip_addr_str_to_int(const char *input) {
     u32 output = 0;
     int pos = 0;
@@ -229,13 +230,8 @@ struct net_device *get_dev_from_hash_table(u32 ip_addr) {
     u32 index = hash_32(ip_addr, hash_bits);
     int attempts = 0;
 
-    printk("vnic: ==========Looking for %pI4h=========\n", &ip_addr);
-    printk("vnic: hash = %u", index);
-
     while (ip_addr_lookup_table[index].device && attempts++ < lookup_table_len) {
         if (ip_addr_lookup_table[index].ip_addr == ip_addr) {
-            printk("vnic: Found %pI4h after %d attempts\n", &ip_addr, attempts);
-            printk("vnic: index = %u, (max %d)\n", index, lookup_table_len);
             return ip_addr_lookup_table[index].device;
         }
         index = (index + 1) % lookup_table_len;
@@ -324,9 +320,7 @@ void vnic_init(struct net_device *dev) {
 int vnic_header(struct sk_buff *skb, struct net_device *dev,
                 unsigned short type, const void *daddr,
                 const void *saddr, unsigned int len) {
-    //
-    // Copied from SNULL - needs modifying to direct to MAC addresses of multiple VNICs
-    //
+    // directs to MAC address of destination VNIC
 
     struct ethhdr *eth = (struct ethhdr *)skb_push(skb, ETH_HLEN);
     // struct sk_buff *ip_skb = ((void *)skb) + ETH_HLEN;
@@ -351,8 +345,6 @@ int vnic_header(struct sk_buff *skb, struct net_device *dev,
     printk(KERN_INFO "Setting destination address %pM, ip addr: %pI4\n", dest_dev->dev_addr, &iph->daddr);
     memcpy(eth->h_dest, dest_dev->dev_addr, dev->addr_len);
 
-    // // Set MAC dest addr len in header to the other VNIC - needs updating for final project
-    // eth->h_dest[ETH_ALEN - 1] ^= 0x01; // XOR last bit of address - Change this
     return (dev->hard_header_len);
 }
 
@@ -400,12 +392,9 @@ int vnic_dev_init(struct net_device *dev) {
 }
 
 /**
- * Stub for open
  * Sets the MAC address for the device
  */
 int vnic_open(struct net_device *dev) {
-    // TODO: Change to allocate based on a lookup
-    // static unsigned char value = 0x00;
     unsigned char mac_addr[6];
     int found_mac = 0;
     int i;
@@ -425,14 +414,9 @@ int vnic_open(struct net_device *dev) {
         return -1;
     }
 
-    // Start with a \0 to indicate not multicast address
-    // unsigned char address[ETH_ALEN] = "\0VNIC0";
-    // address[ETH_ALEN-1] = value++;
-    // memcpy(dev->dev_addr, address, ETH_ALEN);
-
     memcpy(dev->dev_addr, mac_addr, ETH_ALEN);
 
-    printk(KERN_INFO "vnic: opening device %pMF", dev->dev_addr);
+    printk(KERN_INFO "vnic: opening device %pMF\n", dev->dev_addr);
     netif_start_queue(dev);
     return 0;
 }
@@ -537,10 +521,8 @@ netdev_tx_t vnic_xmit(struct sk_buff *skb, struct net_device *dev) {
     printk("vnic: ============================================================================\n");
     printk("vnic: Transmitting a new packet from %s\n", dev->name);
 
-
     length = skb->len;
     data = skb->data;
-
 
     // pad short packets with 0s
     if (skb->len < ETH_ZLEN) {
@@ -551,6 +533,7 @@ netdev_tx_t vnic_xmit(struct sk_buff *skb, struct net_device *dev) {
         memcpy(skb->data, data, ETH_ZLEN);
         skb->len = length;
     }
+
     // Save timestamp for start of transmission
     netif_trans_update(dev);
 
@@ -561,10 +544,10 @@ netdev_tx_t vnic_xmit(struct sk_buff *skb, struct net_device *dev) {
     dest_dev = find_dest_dev(iph, dev);
     // dest_dev = get_dev_from_hash_table(ntohl(iph->daddr));
     if (!dest_dev) {
-        // printk(KERN_ALERT "Dropped packet\n");
         // Drop the packet if destination is null
         printk("vnic: Dropped packet\n");
         dev_kfree_skb(skb);
+        // NETDEV_TX_OK is supplied so that retransmission is not attempted
         return NETDEV_TX_OK;
     }
     printk("Transmitting packet\n");
@@ -572,16 +555,6 @@ netdev_tx_t vnic_xmit(struct sk_buff *skb, struct net_device *dev) {
     vnic_rx(dest_dev, skb);
 
     return NETDEV_TX_OK;
-
-    // dev_kfree_skb(skb);
-    // if (vnic_transfer(data, length, dest_dev)) {
-    //     // dev_kfree_skb(skb);
-    //     return NETDEV_TX_OK;
-    // }
-    // DONT FREE THE DATA IF THE DEVICE IS BUSY
-    // dev_kfree_skb(skb);
-    // return NETDEV_TX_OK;
-    // return NETDEV_TX_BUSY;
 }
 
 void vnic_rx(struct net_device *dev, struct sk_buff *skb) {
@@ -602,6 +575,7 @@ void vnic_rx(struct net_device *dev, struct sk_buff *skb) {
     // The free has been removed from the xmit function, so the buffer will remain
     // in memory.
     //
+
     if (1) {
         int i;
         printk(KERN_DEBUG "len is %i\n data:",skb->len);
@@ -632,7 +606,7 @@ void vnic_rx(struct net_device *dev, struct sk_buff *skb) {
 
 
     // Copy the data back into the skb
-    memcpy(skb->data, buf, skb->len);
+    // memcpy(skb->data, buf, skb->len);
 
     printk("vnic: === Receiving packet ===\n");
 
@@ -725,8 +699,8 @@ int setup_vnic_module(void) {
         }
     }
 
-    // Save a reference to the netsim net_device. This is the first device. Ensure that at least 1 device exists before doing so.
-    if (vnic_count > 1) {
+    // Save a reference to the netsim net_devices which belong to the simulator. Ensure that at least 2 devices exist before doing so.
+    if (vnic_count >= 2) {
         netsim_rxdev = vnic_devs[0];
         netsim_txdev = vnic_devs[1];
     }
